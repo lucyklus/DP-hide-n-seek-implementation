@@ -1,8 +1,8 @@
-import hidenseek_v0
+import hidenseek_v1
 
 
 if __name__ == "__main__":
-    env = hidenseek_v0.HideAndSeekEnv()
+    env = hidenseek_v1.HideAndSeekEnv()
     env.reset()
 
     env.render()
