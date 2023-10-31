@@ -26,7 +26,7 @@ class HideAndSeekEnv(ParallelEnv):
         self.wall_x = None
         self.wall_y = None
         self.possible_agents = ["hider", "seeker"]
-        self.visibility_radius = 2
+        self.visibility_radius = 2  # How far can the seeker see
         self.total_game_time = 50  # Total game time (50 seconds)
         self.game_time = 50
         self.hider_time_limit = 30  # Hider has 30 seconds to hide
@@ -68,10 +68,8 @@ class HideAndSeekEnv(ParallelEnv):
         Needs to update:
         - hider and seeker coordinates
         - terminations
-        - truncations
         - rewards
         - timestamp
-        - infos
 
         And any internal state used by observe() or render()
         """
@@ -90,11 +88,13 @@ class HideAndSeekEnv(ParallelEnv):
         return observations, rewards, terminations
 
     def hider_time_limit_exceeded(self):
+        # Return True if hider's time limit is exceeded (cant move anymore)
         if self.game_time <= self.total_game_time - self.hider_time_limit:
             return True
         return False
 
     def seeker_time_limit_exceeded(self):
+        # Return True if seeker's time limit is exceeded (the game ends)
         if self.game_time == 0:
             return True
         return False
@@ -151,16 +151,13 @@ class HideAndSeekEnv(ParallelEnv):
     def calculate_rewards_and_terminations(self):
         rewards = {"hider": 0.0, "seeker": 0.0}
         terminations = {"hider": False, "seeker": False}
-        is_hider_behind_wall = (
-            self.hider_x == self.wall_x and self.hider_y == self.wall_y
-        )
 
-        # If hider's time limit is exceeded terminate the hider
         if self.hider_time_limit_exceeded():
+            # If hider's time limit is exceeded terminate the hider
             terminations["hider"] = True
 
-        # Terminate the seeker when their time is exhausted and calculate rewards
         if self.seeker_time_limit_exceeded():
+            # Terminate the seeker when their time is exhausted and calculate rewards
             terminations["seeker"] = True
 
             if (
@@ -178,12 +175,12 @@ class HideAndSeekEnv(ParallelEnv):
                 )  # Negative penalty for the seeker if they don't find the hider within their time limit
             self.agents = []  # This ends the game
 
-        # If hider is found by the seeker before the time runs out, terminate both and calculate rewards
         if (
             self.hider_time_limit_exceeded()
             and abs(self.hider_x - self.seeker_x) <= self.visibility_radius
             and abs(self.hider_y - self.seeker_y) <= self.visibility_radius
         ):
+            # If hider is found by the seeker before the time runs out, terminate both and calculate rewards
             terminations["hider"] = True
             terminations["seeker"] = True
             rewards["seeker"] += 10.0  # Discovery Reward for Seekers
