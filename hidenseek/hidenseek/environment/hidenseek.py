@@ -5,8 +5,49 @@ from copy import copy
 import numpy as np
 from gymnasium.spaces import Discrete, MultiDiscrete
 import time
-
+from enum import Enum
+from typing import List, Set
 from pettingzoo import ParallelEnv
+
+
+class AgentType(Enum):
+    HIDER = 0
+    SEEKER = 1
+
+
+class Movement(Enum):
+    LEFT = 0
+    RIGHT = 1
+    UP = 2
+    DOWN = 3
+    STAY = 4
+
+
+class Agent:
+    name: str
+    type: AgentType
+    x: int
+    y: int
+
+    def __init__(self, name, type: AgentType, x, y):
+        self.name = name
+        self.type = type
+        self.x = x
+        self.y = y
+
+    def reset(self, x, y):
+        self.x = x
+        self.y = y
+
+
+SEEKER_DISCOVERY_REWARD = 10.0
+SEEKER_TIME_REWARD = 0.1
+SEEKER_DISCOVERY_PENALTY = -5.0
+
+HIDER_HIDDEN_REWARD = 10.0
+HIDER_DISCOVERY_PENALTY = -5.0
+HIDER_TIME_REWARD = 0.1
+NEXT_TO_WALL_REWARD = 0.5
 
 
 # ParallelEnv - agents get rewards after the end of cycle
@@ -16,16 +57,53 @@ class HideAndSeekEnv(ParallelEnv):
         "name": "hide_and_seek_v1",
     }
 
-    def __init__(self):
+    seekers: List[Agent] = []
+    hiders: List[Agent] = []
+    wall: List[List[int]] = []
+
+    def __init__(self, num_seekers=2, num_hiders=2, grid_size=7, wall=None):
+        # Generate agents
+        if num_seekers < 2 or num_hiders < 2:
+            raise ValueError("Number of seekers and hiders must be at least 2")
+
+        # Prepare seekers
+        seekers_x = 0
+        seekers_y = 0
+        self.seekers = [
+            Agent(f"seeker_{index}", AgentType.SEEKER, seekers_x, seekers_y)
+            for index in range(num_seekers)
+        ]
+
+        # Prepare hiders
+        hiders_x = grid_size - 1
+        hiders_y = grid_size - 1
+        self.hiders = [
+            Agent(f"hider_{index}", AgentType.HIDER, hiders_x, hiders_y)
+            for index in range(num_hiders)
+        ]
+
+        # Set possible agents
+        self.possible_agents = [agent.name for agent in self.seekers + self.hiders]
+
         # The init method takes in environment arguments.
-        self.grid_size = 7
-        self.hider_x = None
-        self.hider_y = None
-        self.seeker_x = None
-        self.seeker_y = None
-        self.wall_x = None
-        self.wall_y = None
-        self.possible_agents = ["hider", "seeker"]
+        self.grid_size = grid_size
+
+        # Set wall
+        if wall is None:
+            self.wall = [[0] * grid_size] * grid_size
+
+        if wall is not None:
+            if len(wall) != grid_size:
+                raise ValueError("Wall must be a square matrix")
+            for row in wall:
+                if len(row) != grid_size:
+                    raise ValueError("Wall must be a square matrix")
+                for column in row:
+                    if column != 0 and column != 1:
+                        raise ValueError("Wall must contain only 0 or 1")
+
+            self.wall = wall
+
         self.visibility_radius = 2  # How far can the seeker see
         self.total_game_time = 50  # Total game time (50 seconds)
         self.game_time = 50
@@ -46,15 +124,11 @@ class HideAndSeekEnv(ParallelEnv):
         self.agents = copy(self.possible_agents)
 
         # Spawn the hider and seeker at opposite corners of the grid
-        self.hider_x = 0
-        self.hider_y = 0
+        for seeker in self.seekers:
+            seeker.reset(0, 0)
 
-        self.seeker_x = self.grid_size - 1
-        self.seeker_y = self.grid_size - 1
-
-        # Spawn the wall at a random location
-        self.wall_x = random.randint(0, self.grid_size - 1)
-        self.wall_y = random.randint(0, self.grid_size - 1)
+        for hider in self.hiders:
+            hider.reset(self.grid_size - 1, self.grid_size - 1)
 
         observations = {}
 
@@ -62,7 +136,7 @@ class HideAndSeekEnv(ParallelEnv):
 
         return observations
 
-    def step(self, actions):
+    def step(self, hiders_actions, seekers_actions):
         """Takes in an action for the current agent specified by agent_selection.
 
         Needs to update:
@@ -75,13 +149,18 @@ class HideAndSeekEnv(ParallelEnv):
         """
 
         if not self.hider_time_limit_exceeded():
-            self.move_agent("hider", actions["hider"])
+            for hidder_name, action in hiders_actions:
+                self.move_agent(AgentType.HIDER, hidder_name, action)
+
         if self.hider_time_limit_exceeded() and not self.seeker_time_limit_exceeded():
-            self.move_agent("seeker", actions["seeker"])
+            for seeker_name, action in seekers_actions:
+                self.move_agent(AgentType.SEEKER, seeker_name, action)
 
         observations = self.get_observations()
 
-        rewards, terminations = self.calculate_rewards_and_terminations()
+        rewards, terminations = self.calculate_rewards_and_terminations(
+            observations["found"]
+        )
 
         self.game_time -= 1  # Decrease the time left with each step
 
@@ -99,109 +178,156 @@ class HideAndSeekEnv(ParallelEnv):
             return True
         return False
 
-    def move_agent(self, agent, action):
-        if action == 0:
-            new_x, new_y = self.get_new_position(agent, -1, 0)  # Move left
-        elif action == 1:
-            new_x, new_y = self.get_new_position(agent, 1, 0)  # Move right
-        elif action == 2:
-            new_x, new_y = self.get_new_position(agent, 0, -1)  # Move up
-        elif action == 3:
-            new_x, new_y = self.get_new_position(agent, 0, 1)  # Move down
-        elif action == 4:
-            new_x, new_y = self.get_agent_position(agent)  # Don't move
-        if agent == "hider":
-            self.hider_x, self.hider_y = new_x, new_y
-        elif agent == "seeker":
-            self.seeker_x, self.seeker_y = new_x, new_y
+    def move_agent(self, agent_type: AgentType, agent_name: str, action: Movement):
+        print(agent_type, agent_name, action)
+        agent: Agent = None
+        if agent_type == AgentType.HIDER:
+            agent = next(filter(lambda x: x.name == agent_name, self.hiders))
+        elif agent_type == AgentType.SEEKER:
+            agent = next(filter(lambda x: x.name == agent_name, self.seekers))
 
-    def get_new_position(self, agent, dx, dy):
-        x, y = self.get_agent_position(agent)
+        x = agent.x
+        y = agent.y
+
+        match action:
+            case Movement.LEFT.value:
+                x, y = self.get_new_position(x, y, -1, 0)  # Move left
+            case Movement.RIGHT.value:
+                x, y = self.get_new_position(x, y, 1, 0)  # Move right
+            case Movement.UP.value:
+                x, y = self.get_new_position(x, y, 0, -1)  # Move up
+            case Movement.DOWN.value:
+                x, y = self.get_new_position(x, y, 0, 1)  # Move down
+
+        agent.x = x
+        agent.y = y
+
+    def get_new_position(self, x: int, y: int, dx: int, dy: int):
+        # Check for wall
         new_x = max(0, min(self.grid_size - 1, x + dx))
         new_y = max(0, min(self.grid_size - 1, y + dy))
+        if self.wall[new_x][new_y] == 1:
+            return x, y
         return new_x, new_y
 
-    def get_agent_position(self, agent):
-        if agent == "hider":
-            return self.hider_x, self.hider_y
-        elif agent == "seeker":
-            return self.seeker_x, self.seeker_y
+    def check_visibility(self, seeker_x, seeker_y, hider_x, hider_y):
+        # TODO - check if the seeker can see the hider
+        if seeker_x == hider_x and seeker_y == hider_y:
+            return True
+        return False
 
     def get_observations(self):
-        hider_x, hider_y = self.hider_x, self.hider_y
-        seeker_x, seeker_y = self.seeker_x, self.seeker_y
-        # Limit hider's visibility
-        if (
-            abs(hider_x - seeker_x) > self.visibility_radius
-            or abs(hider_y - seeker_y) > self.visibility_radius
-        ):
-            hider_x, hider_y = (
-                -1,
-                -1,
-            )  # Set hider's position to -1, -1 if outside visibility radius
+        found: Set[str] = set()
+
+        for seeker in self.seekers:
+            for hider in self.hiders:
+                # Check for visibility and walls
+                if self.check_visibility(seeker.x, seeker.y, hider.x, hider.y):
+                    found.add(hider.name)
+
         observations = {
             "game_time": self.total_game_time,
             "time_left": self.game_time,
-            "hider": [self.hider_x, self.hider_y],
-            "seeker": [self.seeker_x, self.seeker_y],
-            "wall": [self.wall_x, self.wall_y],
+            "hider": [
+                {"name": hider.name, "x": hider.x, "y": hider.y}
+                for hider in self.hiders
+            ],
+            "seeker": [
+                {"name": seeker.name, "x": seeker.x, "y": seeker.y}
+                for seeker in self.seekers
+            ],
+            "found": found,
+            "wall": self.wall,
         }
         return observations
 
-    def calculate_rewards_and_terminations(self):
-        rewards = {"hider": 0.0, "seeker": 0.0}
-        terminations = {"hider": False, "seeker": False}
+    def game_over(self):
+        self.agents = []
+
+    def is_near_wall(self, x, y):
+        # Check if the agent is near the wall (one block away)
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                # Check if in bounds
+                if (
+                    x + dx < 0
+                    or x + dx >= self.grid_size
+                    or y + dy < 0
+                    or y + dy >= self.grid_size
+                ):
+                    continue
+                if self.wall[x + dx][y + dy] == 1:
+                    return True
+
+    def calculate_rewards_and_terminations(self, found: Set[str]):
+        rewards = {"hiders": 0.0, "seekers": 0.0}
+        terminations = {"hiders": False, "seekers": False}
+        hidden = len(self.hiders) - len(found)
 
         if self.hider_time_limit_exceeded():
             # If hider's time limit is exceeded terminate the hider
-            terminations["hider"] = True
+            terminations["hiders"] = True
+        if not self.seeker_time_limit_exceeded():
+            # Check if seeker found the hider
+            if hidden == 0:  # Seekers won
+                terminations["hiders"] = True
+                terminations["seekers"] = True
+                # Calculate rewards for the seekers
+                rewards["seekers"] += SEEKER_DISCOVERY_REWARD * len(
+                    self.hiders
+                )  # Discovery Reward for Seekers
+                rewards["seekers"] += SEEKER_TIME_REWARD * self.game_time
 
-        if self.seeker_time_limit_exceeded():
+                # Calculate rewards for the hiders
+                rewards["hiders"] += HIDER_DISCOVERY_PENALTY * len(
+                    self.hiders
+                )  # Negative penalty for the hider if they are found
+                rewards["hiders"] += HIDER_TIME_REWARD * (
+                    self.total_game_time - self.hider_time_limit - self.game_time
+                )
+
+                # Reward for hiding next to the wall
+                for hider in self.hiders:
+                    if self.is_near_wall(hider.x, hider.y):
+                        rewards["hiders"] += NEXT_TO_WALL_REWARD
+
+                self.game_over()
+        else:  # Hiders won
             # Terminate the seeker when their time is exhausted and calculate rewards
-            terminations["seeker"] = True
+            terminations["seekers"] = True
 
-            if (
-                abs(self.hider_x - self.seeker_x) > self.visibility_radius
-                or abs(self.hider_y - self.seeker_y) > self.visibility_radius
-            ):
-                rewards["hider"] += +10.0
-                rewards["hider"] += (
-                    0.1 * self.seeker_time_limit
-                )  # Time bonus for every second being hidden
-                rewards[
-                    "seeker"
-                ] += (
-                    -5.0
-                )  # Negative penalty for the seeker if they don't find the hider within their time limit
-            self.agents = []  # This ends the game
+            # Calculate rewards for the hiders
+            rewards["hiders"] += (
+                HIDER_HIDDEN_REWARD * hidden
+            )  # Positive reward for the hider if they are not found
 
-        if (
-            self.hider_time_limit_exceeded()
-            and abs(self.hider_x - self.seeker_x) <= self.visibility_radius
-            and abs(self.hider_y - self.seeker_y) <= self.visibility_radius
-        ):
-            # If hider is found by the seeker before the time runs out, terminate both and calculate rewards
-            terminations["hider"] = True
-            terminations["seeker"] = True
-            rewards["seeker"] += 10.0  # Discovery Reward for Seekers
-            rewards["seeker"] += (
-                0.1 * self.game_time
-            )  # Time bonus for every second left
-            rewards["hider"] += -5.0  # Negative penalty for the hider if they are found
-            rewards["hider"] += 0.1 * (
-                self.total_game_time - self.hider_time_limit - self.game_time
-            )  # Positive reward for seconds spent hidden
-            self.agents = []  # This ends the game
-        elif self.hider_x == self.wall_x and self.hider_y == self.wall_y:
-            rewards["hider"] += 5.0  # Positive reward for hider if they reach the wall
+            # Reward for hiding next to the wall
+            for hider in self.hiders:
+                if self.is_near_wall(hider.x, hider.y):
+                    rewards["hiders"] += NEXT_TO_WALL_REWARD
+
+            # Calculate rewards for the seekers
+            rewards["seekers"] += (
+                SEEKER_DISCOVERY_PENALTY * hidden
+            )  # Negative reward for the seeker if they don't find the hider
+            rewards["seekers"] += SEEKER_DISCOVERY_REWARD * len(found)
+
+            self.game_over()
 
         return rewards, terminations
 
     def render(self):
         grid = np.zeros((self.grid_size, self.grid_size), dtype=np.str_)
-        grid[self.hider_y, self.hider_x] = "H"
-        grid[self.seeker_y, self.seeker_x] = "S"
-        grid[self.wall_y, self.wall_x] = "W"
+        for hider in self.hiders:
+            grid[hider.x][hider.y] = "H"
+        for seeker in self.seekers:
+            grid[seeker.x][seeker.y] = "S"
+
+        for x in range(len(self.wall)):
+            for y in range(len(self.wall[x])):
+                if self.wall[x][y] == 1:
+                    grid[x][y] = "#"
+
         print(f"{grid} \n")
 
     # @functools.lru_cache(maxsize=None)
