@@ -3,11 +3,12 @@ import random
 from copy import copy
 
 import numpy as np
-from gymnasium.spaces import Discrete, MultiDiscrete
+from gymnasium import spaces
 import time
 from enum import Enum
-from typing import List, Set
+from typing import List, Set, Dict
 from pettingzoo import ParallelEnv
+from pettingzoo.utils.env import AgentID
 
 
 class AgentType(Enum):
@@ -24,7 +25,7 @@ class Movement(Enum):
 
 
 class Agent:
-    name: str
+    name: AgentID
     type: AgentType
     x: int
     y: int
@@ -164,7 +165,9 @@ class HideAndSeekEnv(ParallelEnv):
 
         self.game_time -= 1  # Decrease the time left with each step
 
-        return observations, rewards, terminations
+        done = self.agents == []
+
+        return observations, rewards, terminations, done
 
     def hider_time_limit_exceeded(self):
         # Return True if hider's time limit is exceeded (cant move anymore)
@@ -226,20 +229,36 @@ class HideAndSeekEnv(ParallelEnv):
                     found.add(hider.name)
 
         observations = {
-            "game_time": self.total_game_time,
-            "time_left": self.game_time,
-            "hider": [
-                {"name": hider.name, "x": hider.x, "y": hider.y}
-                for hider in self.hiders
-            ],
-            "seeker": [
-                {"name": seeker.name, "x": seeker.x, "y": seeker.y}
-                for seeker in self.seekers
-            ],
-            "found": found,
-            "wall": self.wall,
+            "seekers": {},
+            "hiders": {},
         }
+
+        for seeker in self.seekers:
+            observations["seekers"][seeker.name] = self.get_observation(seeker, found)
+
+        for hider in self.hiders:
+            observations["hiders"][hider.name] = self.get_observation(hider, found)
+
         return observations
+
+    def get_observation(self, agent: Agent, found: List[str]) -> np.ndarray[int]:
+        result = []
+
+        position = agent.x + agent.y * self.grid_size
+        result.append(position)
+
+        if agent.type == AgentType.SEEKER:
+            for hider in self.hiders:
+                if hider.name not in found:
+                    hider_position = hider.x + hider.y * self.grid_size
+                    result.append(hider_position)
+
+        if agent.type == AgentType.HIDER:
+            for seeker in self.seekers:
+                seeker_position = seeker.x + seeker.y * self.grid_size
+                result.append(seeker_position)
+
+        return np.array(result)
 
     def game_over(self):
         self.agents = []
@@ -330,10 +349,59 @@ class HideAndSeekEnv(ParallelEnv):
 
         print(f"{grid} \n")
 
+    def observation_space(self, agent: AgentID):
+        return {
+            "seekers_space": spaces.Dict(
+                {
+                    "position": spaces.Tuple(
+                        (
+                            spaces.Discrete(self.grid_size),
+                            spaces.Discrete(self.grid_size),
+                        )
+                    ),  # Seeker's position
+                    "hider_positions": spaces.Tuple(
+                        [
+                            spaces.Tuple(
+                                (
+                                    spaces.Discrete(self.grid_size),
+                                    spaces.Discrete(self.grid_size),
+                                )
+                            )
+                            for _ in self.hiders  # Positions of 3 hiders
+                        ]
+                    ),
+                }
+            ),
+            "hiders_space": spaces.Dict(
+                {
+                    "position": spaces.Tuple(
+                        (
+                            spaces.Discrete(self.grid_size),
+                            spaces.Discrete(self.grid_size),
+                        )
+                    ),  # Seeker's position
+                    "seekers_positions": spaces.Tuple(
+                        [
+                            spaces.Tuple(
+                                (
+                                    spaces.Discrete(self.grid_size),
+                                    spaces.Discrete(self.grid_size),
+                                )
+                            )
+                            for _ in self.seekers  # Positions of 3 hiders
+                        ]
+                    ),
+                }
+            ),
+        }
+
     # @functools.lru_cache(maxsize=None)
     # def observation_space(self, agent):
     #     return MultiDiscrete([self.grid_size * self.grid_size - 1] * 3)
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
-        return Discrete(5)
+        return {
+            "seekers_space": spaces.Discrete(5),
+            "hiders_space": spaces.Discrete(5),
+        }
