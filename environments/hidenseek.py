@@ -1,14 +1,11 @@
 import functools
-import random
 from copy import copy
 
 import numpy as np
 from gymnasium import spaces
-import time
 from enum import Enum
-from typing import List, Set, Dict
+from typing import List, Set
 from pettingzoo import ParallelEnv
-from pettingzoo.utils.env import AgentID
 
 
 class AgentType(Enum):
@@ -25,7 +22,7 @@ class Movement(Enum):
 
 
 class Agent:
-    name: AgentID
+    name: str
     type: AgentType
     x: int
     y: int
@@ -62,7 +59,15 @@ class HideAndSeekEnv(ParallelEnv):
     hiders: List[Agent] = []
     wall: List[List[int]] = []
 
-    def __init__(self, num_seekers=2, num_hiders=2, grid_size=7, wall=None):
+    def __init__(
+        self,
+        num_seekers=2,
+        num_hiders=2,
+        grid_size=7,
+        wall=None,
+        total_time=50,
+        hiding_time=30,
+    ):
         # Generate agents
         if num_seekers < 2 or num_hiders < 2:
             raise ValueError("Number of seekers and hiders must be at least 2")
@@ -106,10 +111,9 @@ class HideAndSeekEnv(ParallelEnv):
             self.wall = wall
 
         self.visibility_radius = 2  # How far can the seeker see
-        self.total_game_time = 50  # Total game time (50 seconds)
-        self.game_time = 50
-        self.hider_time_limit = 30  # Hider has 30 seconds to hide
-        self.seeker_time_limit = 20  # Seeker has 20 seconds to find the hider
+        self.total_game_time = total_time  # Total game time
+        self.game_time = total_time
+        self.hider_time_limit = hiding_time  # Hider has 30 seconds to hide
 
     def reset(self):
         """Reset the environment to a starting point.
@@ -150,22 +154,45 @@ class HideAndSeekEnv(ParallelEnv):
         """
 
         if not self.hider_time_limit_exceeded():
-            for hidder_name, action in hiders_actions:
-                self.move_agent(AgentType.HIDER, hidder_name, action)
+            for agent_name in hiders_actions:
+                self.move_agent(AgentType.HIDER, agent_name, hiders_actions[agent_name])
 
         if self.hider_time_limit_exceeded() and not self.seeker_time_limit_exceeded():
-            for seeker_name, action in seekers_actions:
-                self.move_agent(AgentType.SEEKER, seeker_name, action)
+            for agent_name in seekers_actions:
+                self.move_agent(
+                    AgentType.SEEKER, agent_name, seekers_actions[agent_name]
+                )
 
         observations = self.get_observations()
 
-        rewards, terminations = self.calculate_rewards_and_terminations(
-            observations["found"]
-        )
+        found: Set[str] = set()
+
+        for seeker in self.seekers:
+            for hider in self.hiders:
+                # Check for visibility and walls
+                if self.check_visibility(seeker.x, seeker.y, hider.x, hider.y):
+                    found.add(hider.name)
+
+        # TODO: We should calculate extra reward for seekers that found hider
+        t_rewards, terminations = self.calculate_rewards_and_terminations(found)
+
+        rewards = {
+            "seekers": {
+                agent.name: np.float32(t_rewards["seekers"]) for agent in self.seekers
+            },
+            "hiders": {
+                agent.name: np.float32(t_rewards["hiders"]) for agent in self.hiders
+            },
+        }
+
+        t_done = 1 if self.agents == [] else 0
+
+        done = {
+            "seekers": {agent.name: np.float32(t_done) for agent in self.seekers},
+            "hiders": {agent.name: np.float32(t_done) for agent in self.hiders},
+        }
 
         self.game_time -= 1  # Decrease the time left with each step
-
-        done = self.agents == []
 
         return observations, rewards, terminations, done
 
@@ -181,13 +208,12 @@ class HideAndSeekEnv(ParallelEnv):
             return True
         return False
 
-    def move_agent(self, agent_type: AgentType, agent_name: str, action: Movement):
-        print(agent_type, agent_name, action)
+    def move_agent(self, agent_type: AgentType, name: str, action: int):
         agent: Agent = None
         if agent_type == AgentType.HIDER:
-            agent = next(filter(lambda x: x.name == agent_name, self.hiders))
+            agent = next(filter(lambda x: x.name == name, self.hiders))
         elif agent_type == AgentType.SEEKER:
-            agent = next(filter(lambda x: x.name == agent_name, self.seekers))
+            agent = next(filter(lambda x: x.name == name, self.seekers))
 
         x = agent.x
         y = agent.y
@@ -219,46 +245,29 @@ class HideAndSeekEnv(ParallelEnv):
             return True
         return False
 
-    def get_observations(self):
-        found: Set[str] = set()
-
-        for seeker in self.seekers:
-            for hider in self.hiders:
-                # Check for visibility and walls
-                if self.check_visibility(seeker.x, seeker.y, hider.x, hider.y):
-                    found.add(hider.name)
-
-        observations = {
-            "seekers": {},
-            "hiders": {},
-        }
-
-        for seeker in self.seekers:
-            observations["seekers"][seeker.name] = self.get_observation(seeker, found)
-
-        for hider in self.hiders:
-            observations["hiders"][hider.name] = self.get_observation(hider, found)
-
-        return observations
-
-    def get_observation(self, agent: Agent, found: List[str]) -> np.ndarray[int]:
-        result = []
-
+    def get_observation(self, agent: Agent, type: AgentType):
+        observation = []
         position = agent.x + agent.y * self.grid_size
-        result.append(position)
+        observation.append(position)
+        for agent in self.seekers if type == AgentType.HIDER else self.hiders:
+            # TODO: Ak nie je v dosahu, tak -1
+            position = agent.x + agent.y * self.grid_size
+            observation.append(position)
 
-        if agent.type == AgentType.SEEKER:
-            for hider in self.hiders:
-                if hider.name not in found:
-                    hider_position = hider.x + hider.y * self.grid_size
-                    result.append(hider_position)
+        return np.array(observation, dtype=np.float32)
 
-        if agent.type == AgentType.HIDER:
-            for seeker in self.seekers:
-                seeker_position = seeker.x + seeker.y * self.grid_size
-                result.append(seeker_position)
-
-        return np.array(result)
+    def get_observations(self):
+        observations = {
+            "seekers": {
+                agent.name: self.get_observation(agent, AgentType.SEEKER)
+                for agent in self.seekers
+            },
+            "hiders": {
+                agent.name: self.get_observation(agent, AgentType.HIDER)
+                for agent in self.hiders
+            },
+        }
+        return observations
 
     def game_over(self):
         self.agents = []
@@ -347,61 +356,20 @@ class HideAndSeekEnv(ParallelEnv):
                 if self.wall[x][y] == 1:
                     grid[x][y] = "#"
 
-        print(f"{grid} \n")
-
-    def observation_space(self, agent: AgentID):
-        return {
-            "seekers_space": spaces.Dict(
-                {
-                    "position": spaces.Tuple(
-                        (
-                            spaces.Discrete(self.grid_size),
-                            spaces.Discrete(self.grid_size),
-                        )
-                    ),  # Seeker's position
-                    "hider_positions": spaces.Tuple(
-                        [
-                            spaces.Tuple(
-                                (
-                                    spaces.Discrete(self.grid_size),
-                                    spaces.Discrete(self.grid_size),
-                                )
-                            )
-                            for _ in self.hiders  # Positions of 3 hiders
-                        ]
-                    ),
-                }
-            ),
-            "hiders_space": spaces.Dict(
-                {
-                    "position": spaces.Tuple(
-                        (
-                            spaces.Discrete(self.grid_size),
-                            spaces.Discrete(self.grid_size),
-                        )
-                    ),  # Seeker's position
-                    "seekers_positions": spaces.Tuple(
-                        [
-                            spaces.Tuple(
-                                (
-                                    spaces.Discrete(self.grid_size),
-                                    spaces.Discrete(self.grid_size),
-                                )
-                            )
-                            for _ in self.seekers  # Positions of 3 hiders
-                        ]
-                    ),
-                }
-            ),
-        }
-
-    # @functools.lru_cache(maxsize=None)
-    # def observation_space(self, agent):
-    #     return MultiDiscrete([self.grid_size * self.grid_size - 1] * 3)
+        for row in grid:
+            for column in row:
+                if column == "":
+                    print("-", end=" ")
+                else:
+                    print(column, end=" ")
+            print()
 
     @functools.lru_cache(maxsize=None)
-    def action_space(self, agent):
-        return {
-            "seekers_space": spaces.Discrete(5),
-            "hiders_space": spaces.Discrete(5),
-        }
+    def observation_space(self, agent_name):
+        possible_places = self.grid_size * self.grid_size
+        oponents = self.seekers if agent_name.split("_")[0] == "hiders" else self.hiders
+        return spaces.MultiDiscrete([possible_places] * (len(oponents) + 1))
+
+    @functools.lru_cache(maxsize=None)
+    def action_space(self, agent_name):
+        return spaces.Discrete(5)
