@@ -1,3 +1,4 @@
 pettingzoo==1.24.0
 agilerl==0.1.12
 torch==2.1.0
+pygame==2.5.2
