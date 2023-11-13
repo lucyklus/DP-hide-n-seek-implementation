@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from agilerl.algorithms.matd3 import MATD3
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from typing import List, Dict, Set
+import numpy as np
 import pygame
 import os
 
@@ -16,7 +17,7 @@ class Frame:
     terminations: Dict[str, bool]
     done: Dict[str, Dict[str, float]]
     won: Dict[str, bool]
-    found: Set[str]
+    found: Dict[str, np.float32]
 
 
 Episode = List[Frame]
@@ -26,6 +27,7 @@ TOTAL_TIME = 100
 EPISODES = 20
 GRID_SIZE = 7
 USE_CHECKPOINTS = False
+FRAMERATE = 30
 
 
 def train_data():
@@ -134,7 +136,6 @@ def train_data():
     # Episodes
     for episode in range(EPISODES):
         ep: Episode = []
-        # TODO: Save map and after training render all episodes
         state = env.reset()
         done = False
         ep_rewards = None
@@ -224,6 +225,10 @@ def render(episodes_data: List[Episode]):
     """
     # pygame setup
     CELL_SIZE = 100
+    hider_img = pygame.image.load("./img/duck.png")
+    hider_dead_img = pygame.image.load("./img/duck_dead.png")
+    seeker_img = pygame.image.load("./img/programmer.png")
+    wall_img = pygame.image.load("./img/wall.png")
     pygame.init()
     font = pygame.font.SysFont("Arial", 25)
     pygame.display.set_caption("Episode 0")
@@ -232,6 +237,8 @@ def render(episodes_data: List[Episode]):
     running = True
 
     for ep_index, ep in enumerate(episodes_data):
+        # TODO: Print rewards
+        # TODO: Show images upon its actions (moving right shows _right.png)
         pygame.display.set_caption(f"Episode {ep_index}")
         for frame_i, frame in enumerate(ep):
             paused = False
@@ -251,23 +258,34 @@ def render(episodes_data: List[Episode]):
                         if event.key == pygame.K_SPACE:
                             paused = False
                             break
-                clock.tick(60)
+                clock.tick(FRAMERATE)
             if running == False:
                 break
-            screen.fill("white")
+            if frame_i < HIDING_TIME:
+                screen.fill("white")
+            else:
+                screen.fill("black")
             for i, row in enumerate(frame.state):
                 for j, cell in enumerate(row):
                     if cell["type"] == "W":
-                        pygame.draw.rect(
-                            screen,
-                            "black",
-                            (j * CELL_SIZE, i * CELL_SIZE, CELL_SIZE, CELL_SIZE),
-                        )
+                        screen.blit(wall_img, (j * CELL_SIZE, i * CELL_SIZE))
                     elif cell["type"] == "S":
-                        pygame.draw.rect(
-                            screen,
-                            "red",
-                            (j * CELL_SIZE, i * CELL_SIZE, CELL_SIZE, CELL_SIZE),
+                        if frame_i > HIDING_TIME:
+                            pygame.draw.circle(
+                                screen,
+                                (255, 255, 0),
+                                (
+                                    j * CELL_SIZE + CELL_SIZE / 2,
+                                    i * CELL_SIZE + CELL_SIZE / 2,
+                                ),
+                                CELL_SIZE,
+                            )
+                        screen.blit(
+                            seeker_img,
+                            (
+                                j * CELL_SIZE,
+                                i * CELL_SIZE,
+                            ),
                         )
                         screen.blit(
                             font.render(cell["name"], True, (0, 0, 0)),
@@ -278,11 +296,11 @@ def render(episodes_data: List[Episode]):
                         )
 
                     elif cell["type"] == "H":
-                        pygame.draw.rect(
-                            screen,
-                            "blue" if frame_i < HIDING_TIME else "grey",
-                            (j * CELL_SIZE, i * CELL_SIZE, CELL_SIZE, CELL_SIZE),
-                        )
+                        if frame.found[cell["name"]] is not None:
+                            screen.blit(hider_dead_img, (j * CELL_SIZE, i * CELL_SIZE))
+                        else:
+                            screen.blit(hider_img, (j * CELL_SIZE, i * CELL_SIZE))
+
                         screen.blit(
                             font.render(cell["name"], True, (0, 0, 0)),
                             (
@@ -290,33 +308,8 @@ def render(episodes_data: List[Episode]):
                                 i * CELL_SIZE,
                             ),
                         )
-                        if cell["name"] in frame.found:
-                            pygame.draw.line(
-                                screen,
-                                "red",
-                                (
-                                    j * CELL_SIZE,
-                                    i * CELL_SIZE,
-                                ),
-                                (
-                                    (j + 1) * CELL_SIZE,
-                                    (i + 1) * CELL_SIZE,
-                                ),
-                            )
-                            pygame.draw.line(
-                                screen,
-                                "red",
-                                (
-                                    (j + 1) * CELL_SIZE,
-                                    i * CELL_SIZE,
-                                ),
-                                (
-                                    j * CELL_SIZE,
-                                    (i + 1) * CELL_SIZE,
-                                ),
-                            )
             pygame.display.flip()
-            clock.tick(60)
+            clock.tick(FRAMERATE)
 
         if running == False:
             break
@@ -344,7 +337,6 @@ def render(episodes_data: List[Episode]):
         pygame.time.wait(500)
 
     pygame.quit()
-    # TODO: kukmut ci sa nedostavame do lok minima lebo ked najdu jedneho hidera, druheho uz nie
 
 
 if __name__ == "__main__":
