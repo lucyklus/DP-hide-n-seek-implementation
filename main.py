@@ -379,23 +379,20 @@ def render(episodes_data: List[Episode]):
             break
 
         if ep[-1].won["seekers"]:
-            screen.fill("red")
-            screen.blit(
-                font.render("Seekers won", True, (0, 0, 0)),
-                (
-                    GRID_SIZE * CELL_SIZE / 2 - 100,
-                    GRID_SIZE * CELL_SIZE / 2 - 50,
-                ),
+            total_rewards = sum(ep[-1].rewards["seekers"].values())
+            text = font.render(
+                f"Seekers won with total rewards: {total_rewards}", True, (0, 0, 0)
             )
+            screen.fill("blue")
+            screen.blit(text, text.get_rect(center=screen.get_rect().center))
         else:
-            screen.fill("green")
-            screen.blit(
-                font.render("Hiders won", True, (0, 0, 0)),
-                (
-                    GRID_SIZE * CELL_SIZE / 2 - 100,
-                    GRID_SIZE * CELL_SIZE / 2 - 50,
-                ),
+            total_rewards = sum(ep[-1].rewards["hiders"].values())
+            text = font.render(
+                f"Hiders won with total rewards: {total_rewards}", True, (0, 0, 0)
             )
+            screen.fill("yellow")
+            screen.blit(text, text.get_rect(center=screen.get_rect().center))
+        pygame.time.wait(500)
 
         pygame.display.flip()
         pygame.time.wait(500)
