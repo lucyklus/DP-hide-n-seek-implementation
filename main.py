@@ -24,6 +24,7 @@ Episode = List[Frame]
 
 HIDING_TIME = 50
 TOTAL_TIME = 100
+VISIBILITY = 3
 EPISODES = 20
 GRID_SIZE = 7
 USE_CHECKPOINTS = False
@@ -53,6 +54,7 @@ def train_data():
         grid_size=GRID_SIZE,
         total_time=TOTAL_TIME,
         hiding_time=HIDING_TIME,
+        visibility_radius=VISIBILITY,
     )
     env.reset()
 
@@ -187,7 +189,7 @@ def train_data():
                 Frame(
                     state=env.render(),
                     rewards=rewards,
-                    actions=seekers_actions,
+                    actions={"seekers": seekers_actions, "hiders": hiders_actions},
                     terminations=terminated,
                     done=done,
                     won=won,
@@ -218,6 +220,44 @@ def train_data():
     return episodes_data
 
 
+hider_right = pygame.image.load("./img/duck_right.png")
+hider_back = pygame.image.load("./img/duck_back.png")
+hider_front = pygame.image.load("./img/duck_front.png")
+hider_found_right = pygame.image.load("./img/duck_found_right.png")
+hider_found_back = pygame.image.load("./img/duck_found_back.png")
+hider_found_front = pygame.image.load("./img/duck_found_front.png")
+seeker_right = pygame.image.load("./img/programmer_side.png")
+seeker_back = pygame.image.load("./img/programmer_back.png")
+seeker_front = pygame.image.load("./img/programmer_front.png")
+images = {
+    "hider": {
+        0: pygame.transform.flip(hider_right, True, False),  # left
+        1: hider_right,  # right
+        2: hider_back,  # up
+        3: hider_front,  # down
+        4: hider_front,  # stay // front
+    },
+    "hider-found": {
+        0: pygame.transform.flip(hider_found_right, True, False),  # left
+        1: hider_found_right,  # right
+        2: hider_found_back,  # up
+        3: hider_found_front,  # down
+        4: hider_found_front,  # stay // front
+    },
+    "seeker": {
+        0: pygame.transform.flip(seeker_right, True, False),  # left
+        1: seeker_right,  # right
+        2: seeker_back,  # up
+        3: seeker_front,  # down
+        4: seeker_front,  # stay // front
+    },
+}
+
+
+def getImage(name: str, action: int):
+    return images[name][action]
+
+
 def render(episodes_data: List[Episode]):
     """
     Renders all episodes from episodes_data using pygame
@@ -225,9 +265,6 @@ def render(episodes_data: List[Episode]):
     """
     # pygame setup
     CELL_SIZE = 100
-    hider_img = pygame.image.load("./img/duck.png")
-    hider_dead_img = pygame.image.load("./img/duck_dead.png")
-    seeker_img = pygame.image.load("./img/programmer.png")
     wall_img = pygame.image.load("./img/wall.png")
     pygame.init()
     font = pygame.font.SysFont("Arial", 25)
@@ -237,8 +274,6 @@ def render(episodes_data: List[Episode]):
     running = True
 
     for ep_index, ep in enumerate(episodes_data):
-        # TODO: Print rewards
-        # TODO: Show images upon its actions (moving right shows _right.png)
         pygame.display.set_caption(f"Episode {ep_index}")
         for frame_i, frame in enumerate(ep):
             paused = False
@@ -265,28 +300,40 @@ def render(episodes_data: List[Episode]):
                 screen.fill("white")
             else:
                 screen.fill("black")
-            for i, row in enumerate(frame.state):
-                for j, cell in enumerate(row):
+            for j, col in enumerate(frame.state):
+                for i, cell in enumerate(col):
                     if cell["type"] == "W":
                         screen.blit(wall_img, (j * CELL_SIZE, i * CELL_SIZE))
                     elif cell["type"] == "S":
                         if frame_i > HIDING_TIME:
+                            # Seekers flaashlight visibility
                             pygame.draw.circle(
                                 screen,
-                                (255, 255, 0),
+                                (255, 255, 0, 50),
                                 (
                                     j * CELL_SIZE + CELL_SIZE / 2,
                                     i * CELL_SIZE + CELL_SIZE / 2,
                                 ),
-                                CELL_SIZE,
+                                VISIBILITY * CELL_SIZE,
                             )
-                        screen.blit(
-                            seeker_img,
-                            (
-                                j * CELL_SIZE,
-                                i * CELL_SIZE,
-                            ),
-                        )
+                            screen.blit(
+                                getImage(
+                                    cell["name"].split("_")[0],
+                                    frame.actions["seekers"][cell["name"]],
+                                ),
+                                (
+                                    j * CELL_SIZE,
+                                    i * CELL_SIZE,
+                                ),
+                            )
+                        else:
+                            screen.blit(
+                                getImage(cell["name"].split("_")[0], 4),
+                                (
+                                    j * CELL_SIZE,
+                                    i * CELL_SIZE,
+                                ),
+                            )
                         screen.blit(
                             font.render(cell["name"], True, (0, 0, 0)),
                             (
@@ -297,9 +344,26 @@ def render(episodes_data: List[Episode]):
 
                     elif cell["type"] == "H":
                         if frame.found[cell["name"]] is not None:
-                            screen.blit(hider_dead_img, (j * CELL_SIZE, i * CELL_SIZE))
+                            screen.blit(
+                                getImage(
+                                    "hider-found", frame.actions["hiders"][cell["name"]]
+                                ),
+                                (j * CELL_SIZE, i * CELL_SIZE),
+                            )
                         else:
-                            screen.blit(hider_img, (j * CELL_SIZE, i * CELL_SIZE))
+                            if frame_i < HIDING_TIME:
+                                screen.blit(
+                                    getImage(
+                                        cell["name"].split("_")[0],
+                                        frame.actions["hiders"][cell["name"]],
+                                    ),
+                                    (j * CELL_SIZE, i * CELL_SIZE),
+                                )
+                            else:
+                                screen.blit(
+                                    getImage(cell["name"].split("_")[0], 4),
+                                    (j * CELL_SIZE, i * CELL_SIZE),
+                                )
 
                         screen.blit(
                             font.render(cell["name"], True, (0, 0, 0)),
