@@ -69,6 +69,7 @@ class HideAndSeekEnv(ParallelEnv):
         wall=None,
         total_time=50,
         hiding_time=30,
+        visibility_radius=2,
     ):
         # Generate agents
         if num_seekers < 2 or num_hiders < 2:
@@ -115,7 +116,7 @@ class HideAndSeekEnv(ParallelEnv):
             self.wall = wall
         self.wallsCoords = self.get_walls_coordinates()
 
-        self.visibility_radius = 2  # How far can the seeker see
+        self.visibility_radius = visibility_radius  # How far can the seeker see
         self.total_game_time = total_time  # Total game time
         self.game_time = total_time
         self.hider_time_limit = hiding_time  # Hider has 30 seconds to hide
@@ -176,11 +177,10 @@ class HideAndSeekEnv(ParallelEnv):
         if self.hider_time_limit_exceeded() and not self.seeker_time_limit_exceeded():
             for seeker in self.seekers:
                 for hider in self.hiders:
-                    # Check for visibility and walls
-                    if self.check_visibility(seeker.x, seeker.y, hider.x, hider.y):
+                    if self.check_found(seeker.x, seeker.y, hider.x, hider.y):
                         if self.found[hider.name] is None:
                             self.found[hider.name] = seeker.name
-                            
+
         rewards, terminations, won = self.calculate_rewards_and_terminations()
 
         t_done = 1 if self.agents == [] else 0
@@ -252,7 +252,19 @@ class HideAndSeekEnv(ParallelEnv):
                     walls.append((x, y))
         return walls
 
+    def check_found(self, seeker_x, seeker_y, hider_x, hider_y):
+        """
+        Check if the seeker found the hider
+        """
+        if seeker_x == hider_x and seeker_y == hider_y:
+            return True
+        return False
+
     def check_visibility(self, seeker_x, seeker_y, hider_x, hider_y):
+        """
+        We should provide observability of hiders only if they are within the specified radius
+        """
+
         # Calculating the radial visibility with euclidean distance
         dx = hider_x - seeker_x
         dy = hider_y - seeker_y
@@ -279,16 +291,22 @@ class HideAndSeekEnv(ParallelEnv):
         return True
 
     def get_observation(self, agent: Agent, type: AgentType):
+        """
+        Return the observation for the agent
+        """
         observation = []
         position = agent.x + agent.y * self.grid_size
         observation.append(position)
         if type == AgentType.SEEKER:
             for hider in self.hiders:
                 if hider.name not in self.found:
-                    position = hider.x + hider.y * self.grid_size
-                    observation.append(position)
+                    if self.check_visibility(agent.x, agent.y, hider.x, hider.y):
+                        position = hider.x + hider.y * self.grid_size
+                        observation.append(position)
+                    else:
+                        observation.append(-1)
                 else:
-                    observation.append(-1)
+                    observation.append(-2)
         else:
             for seeker in self.seekers:
                 position = seeker.x + seeker.y * self.grid_size
@@ -297,6 +315,9 @@ class HideAndSeekEnv(ParallelEnv):
         return np.array(observation, dtype=np.float32)
 
     def get_observations(self):
+        """
+        Return the observations for all agents
+        """
         observations = {
             "seekers": {
                 agent.name: self.get_observation(agent, AgentType.SEEKER)
