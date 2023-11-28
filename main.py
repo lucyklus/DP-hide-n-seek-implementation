@@ -254,7 +254,7 @@ images = {
 }
 
 
-def getImage(name: str, action: int):
+def getImage(name: str, action: int = 4):
     return images[name][action]
 
 
@@ -328,14 +328,14 @@ def render(episodes_data: List[Episode]):
                             )
                         else:
                             screen.blit(
-                                getImage(cell["name"].split("_")[0], 4),
+                                getImage(cell["name"].split("_")[0]),
                                 (
                                     j * CELL_SIZE,
                                     i * CELL_SIZE,
                                 ),
                             )
                         screen.blit(
-                            font.render(cell["name"], True, (0, 0, 0)),
+                            font.render(cell["name"], True, (0, 0, 255)),
                             (
                                 j * CELL_SIZE,
                                 i * CELL_SIZE,
@@ -343,11 +343,12 @@ def render(episodes_data: List[Episode]):
                         )
 
                     elif cell["type"] == "H":
+                        fontColor = (
+                            (0, 0, 0) if frame_i < HIDING_TIME else (255, 255, 255)
+                        )
                         if frame.found[cell["name"]] is not None:
                             screen.blit(
-                                getImage(
-                                    "hider-found", frame.actions["hiders"][cell["name"]]
-                                ),
+                                getImage("hider-found"),
                                 (j * CELL_SIZE, i * CELL_SIZE),
                             )
                         else:
@@ -366,7 +367,7 @@ def render(episodes_data: List[Episode]):
                                 )
 
                         screen.blit(
-                            font.render(cell["name"], True, (0, 0, 0)),
+                            font.render(cell["name"], True, fontColor),
                             (
                                 j * CELL_SIZE,
                                 i * CELL_SIZE,
@@ -381,14 +382,18 @@ def render(episodes_data: List[Episode]):
         if ep[-1].won["seekers"]:
             total_rewards = sum(ep[-1].rewards["seekers"].values())
             text = font.render(
-                f"Seekers won with total rewards: {total_rewards}", True, (0, 0, 0)
+                f"Seekers won with total rewards: {round(total_rewards, 2)}",
+                True,
+                (0, 0, 0),
             )
             screen.fill("blue")
             screen.blit(text, text.get_rect(center=screen.get_rect().center))
         else:
             total_rewards = sum(ep[-1].rewards["hiders"].values())
             text = font.render(
-                f"Hiders won with total rewards: {total_rewards}", True, (0, 0, 0)
+                f"Hiders won with total rewards: {round(total_rewards, 2)}",
+                True,
+                (0, 0, 0),
             )
             screen.fill("yellow")
             screen.blit(text, text.get_rect(center=screen.get_rect().center))
