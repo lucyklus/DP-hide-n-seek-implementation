@@ -432,7 +432,7 @@ class HideAndSeekEnv(ParallelEnv):
         for x in range(len(self.wall)):
             for y in range(len(self.wall[x])):
                 if self.wall[x][y] == 1:
-                    grid[x][y] = {"type": "W", "name": "wall"}
+                    grid[x][y] = {"type": "W", "name": f"wall_{x}_{y}"}
 
         return grid
 
