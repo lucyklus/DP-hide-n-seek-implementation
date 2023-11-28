@@ -1,34 +1,21 @@
 from environments import hidenseek
 import torch
-from dataclasses import dataclass
 from agilerl.algorithms.matd3 import MATD3
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
-from typing import List, Dict, Set
-import numpy as np
-import pygame
+from typing import List, Dict
 import os
 
-
-@dataclass
-class Frame:
-    state: List[List[Dict[str, str]]]
-    rewards: Dict[str, Dict[str, float]]
-    actions: Dict[str, Dict[str, int]]
-    terminations: Dict[str, bool]
-    done: Dict[str, Dict[str, float]]
-    won: Dict[str, bool]
-    found: Dict[str, np.float32]
+from rendering.renderer import GameRenderer, Episode, Frame
 
 
-Episode = List[Frame]
-
-HIDING_TIME = 50
 TOTAL_TIME = 100
-VISIBILITY = 3
-EPISODES = 20
+HIDING_TIME = 50
+VISIBILITY = 2
+EPISODES = 2
 GRID_SIZE = 7
 USE_CHECKPOINTS = False
-FRAMERATE = 30
+N_SEEKERS = 2
+N_HIDERS = 2
 
 
 def train_data():
@@ -43,14 +30,11 @@ def train_data():
         [0, 0, 0, 1, 0, 0, 0],
     ]
 
-    n_seekers = 2
-    n_hiders = 2
-
     env = hidenseek.HideAndSeekEnv(
         # TODO: Add to game config
         wall=current_wall,
-        num_hiders=n_hiders,
-        num_seekers=n_seekers,
+        num_hiders=N_HIDERS,
+        num_seekers=N_SEEKERS,
         grid_size=GRID_SIZE,
         total_time=TOTAL_TIME,
         hiding_time=HIDING_TIME,
@@ -220,191 +204,6 @@ def train_data():
     return episodes_data
 
 
-hider_right = pygame.image.load("./img/duck_right.png")
-hider_back = pygame.image.load("./img/duck_back.png")
-hider_front = pygame.image.load("./img/duck_front.png")
-hider_found_right = pygame.image.load("./img/duck_found_right.png")
-hider_found_back = pygame.image.load("./img/duck_found_back.png")
-hider_found_front = pygame.image.load("./img/duck_found_front.png")
-seeker_right = pygame.image.load("./img/programmer_side.png")
-seeker_back = pygame.image.load("./img/programmer_back.png")
-seeker_front = pygame.image.load("./img/programmer_front.png")
-images = {
-    "hider": {
-        0: pygame.transform.flip(hider_right, True, False),  # left
-        1: hider_right,  # right
-        2: hider_back,  # up
-        3: hider_front,  # down
-        4: hider_front,  # stay // front
-    },
-    "hider-found": {
-        0: pygame.transform.flip(hider_found_right, True, False),  # left
-        1: hider_found_right,  # right
-        2: hider_found_back,  # up
-        3: hider_found_front,  # down
-        4: hider_found_front,  # stay // front
-    },
-    "seeker": {
-        0: pygame.transform.flip(seeker_right, True, False),  # left
-        1: seeker_right,  # right
-        2: seeker_back,  # up
-        3: seeker_front,  # down
-        4: seeker_front,  # stay // front
-    },
-}
-
-
-def getImage(name: str, action: int = 4):
-    return images[name][action]
-
-
-def render(episodes_data: List[Episode]):
-    """
-    Renders all episodes from episodes_data using pygame
-
-    """
-    # pygame setup
-    CELL_SIZE = 100
-    wall_img = pygame.image.load("./img/wall.png")
-    pygame.init()
-    font = pygame.font.SysFont("Arial", 25)
-    pygame.display.set_caption("Episode 0")
-    screen = pygame.display.set_mode((GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE))
-    clock = pygame.time.Clock()
-    running = True
-
-    for ep_index, ep in enumerate(episodes_data):
-        pygame.display.set_caption(f"Episode {ep_index}")
-        for frame_i, frame in enumerate(ep):
-            paused = False
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_SPACE:
-                        paused = True
-
-            while paused:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        running = False
-                        paused = False
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_SPACE:
-                            paused = False
-                            break
-                clock.tick(FRAMERATE)
-            if running == False:
-                break
-            if frame_i < HIDING_TIME:
-                screen.fill("white")
-            else:
-                screen.fill("black")
-            for j, col in enumerate(frame.state):
-                for i, cell in enumerate(col):
-                    if cell["type"] == "W":
-                        screen.blit(wall_img, (j * CELL_SIZE, i * CELL_SIZE))
-                    elif cell["type"] == "S":
-                        if frame_i > HIDING_TIME:
-                            # Seekers flaashlight visibility
-                            pygame.draw.circle(
-                                screen,
-                                (255, 255, 0, 50),
-                                (
-                                    j * CELL_SIZE + CELL_SIZE / 2,
-                                    i * CELL_SIZE + CELL_SIZE / 2,
-                                ),
-                                VISIBILITY * CELL_SIZE,
-                            )
-                            screen.blit(
-                                getImage(
-                                    cell["name"].split("_")[0],
-                                    frame.actions["seekers"][cell["name"]],
-                                ),
-                                (
-                                    j * CELL_SIZE,
-                                    i * CELL_SIZE,
-                                ),
-                            )
-                        else:
-                            screen.blit(
-                                getImage(cell["name"].split("_")[0]),
-                                (
-                                    j * CELL_SIZE,
-                                    i * CELL_SIZE,
-                                ),
-                            )
-                        screen.blit(
-                            font.render(cell["name"], True, (0, 0, 255)),
-                            (
-                                j * CELL_SIZE,
-                                i * CELL_SIZE,
-                            ),
-                        )
-
-                    elif cell["type"] == "H":
-                        fontColor = (
-                            (0, 0, 0) if frame_i < HIDING_TIME else (255, 255, 255)
-                        )
-                        if frame.found[cell["name"]] is not None:
-                            screen.blit(
-                                getImage("hider-found"),
-                                (j * CELL_SIZE, i * CELL_SIZE),
-                            )
-                        else:
-                            if frame_i < HIDING_TIME:
-                                screen.blit(
-                                    getImage(
-                                        cell["name"].split("_")[0],
-                                        frame.actions["hiders"][cell["name"]],
-                                    ),
-                                    (j * CELL_SIZE, i * CELL_SIZE),
-                                )
-                            else:
-                                screen.blit(
-                                    getImage(cell["name"].split("_")[0], 4),
-                                    (j * CELL_SIZE, i * CELL_SIZE),
-                                )
-
-                        screen.blit(
-                            font.render(cell["name"], True, fontColor),
-                            (
-                                j * CELL_SIZE,
-                                i * CELL_SIZE,
-                            ),
-                        )
-            pygame.display.flip()
-            clock.tick(FRAMERATE)
-
-        if running == False:
-            break
-
-        if ep[-1].won["seekers"]:
-            total_rewards = sum(ep[-1].rewards["seekers"].values())
-            text = font.render(
-                f"Seekers won with total rewards: {round(total_rewards, 2)}",
-                True,
-                (0, 0, 0),
-            )
-            screen.fill("blue")
-            screen.blit(text, text.get_rect(center=screen.get_rect().center))
-        else:
-            total_rewards = sum(ep[-1].rewards["hiders"].values())
-            text = font.render(
-                f"Hiders won with total rewards: {round(total_rewards, 2)}",
-                True,
-                (0, 0, 0),
-            )
-            screen.fill("yellow")
-            screen.blit(text, text.get_rect(center=screen.get_rect().center))
-        pygame.time.wait(500)
-
-        pygame.display.flip()
-        pygame.time.wait(500)
-
-    pygame.quit()
-
-
 if __name__ == "__main__":
     episodes_data: List[Episode] = None
     while True:
@@ -415,7 +214,15 @@ if __name__ == "__main__":
             if episodes_data == None:
                 print("No data to render")
             else:
-                render(episodes_data)
+                GameRenderer(
+                    episodes_data,
+                    GRID_SIZE,
+                    TOTAL_TIME,
+                    HIDING_TIME,
+                    VISIBILITY,
+                    N_HIDERS,
+                    N_SEEKERS,
+                ).render()
         elif x == "3":
             break
         else:
