@@ -1,9 +1,11 @@
+import datetime
 from environments import hidenseek
 import torch
 from agilerl.algorithms.matd3 import MATD3
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from typing import List, Dict
 import os
+import json
 
 from rendering.renderer import GameRenderer, Episode, Frame
 
@@ -11,11 +13,13 @@ from rendering.renderer import GameRenderer, Episode, Frame
 TOTAL_TIME = 100
 HIDING_TIME = 50
 VISIBILITY = 2
-EPISODES = 2
+EPISODES = 80000
 GRID_SIZE = 7
 USE_CHECKPOINTS = False
 N_SEEKERS = 2
 N_HIDERS = 2
+
+EPISODE_PART_SIZE = 1000
 
 
 def train_data():
@@ -119,8 +123,22 @@ def train_data():
         except:
             print("No hiders checkpoint found")
 
+    episode_n = 0
+    file_n = 0
+    training_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
     # Episodes
     for episode in range(EPISODES):
+        if episode_n == EPISODE_PART_SIZE:
+            file_n += 1
+            save_file = open(f"./results/{training_date}_part{file_n}.json", "w")
+            json.dump(
+                episodes_data, save_file, indent=2, default=lambda obj: obj.__dict__
+            )
+            save_file.close()
+            episodes_data: List[Episode] = []
+            episode_n = 0
+
         ep: Episode = []
         state = env.reset()
         done = False
@@ -184,7 +202,7 @@ def train_data():
             old_seeker_observation = new_obs["seekers"]
             old_hiders_observation = new_obs["hiders"]
             ep_rewards = rewards
-        print(f"Episode: {episode} Rewards: {ep_rewards}")
+        # print(f"Episode: {episode} Rewards: {ep_rewards}")
 
         seekers_score = sum(ep_rewards["seekers"].values())
         hiders_score = sum(ep_rewards["hiders"].values())
@@ -192,6 +210,7 @@ def train_data():
         seekers.scores.append(seekers_score)
         hiders.scores.append(hiders_score)
         episodes_data.append(ep)
+        episode_n += 1
 
     if os.path.exists("./checkpoints") == False:
         os.mkdir("./checkpoints")
@@ -210,6 +229,18 @@ if __name__ == "__main__":
         x = input("1. Train\n2. Render\n3. Exit\n")
         if x == "1":
             episodes_data = train_data()
+            # Deserialize (for future use)
+            # data: list[Episode] = []
+            # with open(
+            #     "data.json",
+            # ) as json_file:
+            #     episodes_json: list[list[dict]] = json.load(json_file)
+            #     for ep in episodes_json:
+            #         frames: Episode = []
+            #         for frame in ep:
+            #             print(frame)
+            #             frames.append(Frame(**frame))
+            #         data.append(frames)
         elif x == "2":
             if episodes_data == None:
                 print("No data to render")
