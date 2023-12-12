@@ -10,9 +10,9 @@ class Frame:
     rewards: Dict[str, Dict[str, float]]
     actions: Dict[str, Dict[str, int]]
     terminations: Dict[str, bool]
-    done: Dict[str, Dict[str, float]]
+    done: Dict[str, Dict[str, int]]
     won: Dict[str, bool]
-    found: Dict[str, np.float32]
+    found: Dict[str, str]
 
 
 Episode = List[Frame]

@@ -59,7 +59,7 @@ class HideAndSeekEnv(ParallelEnv):
     seekers: List[Agent] = []
     hiders: List[Agent] = []
     wall: List[List[int]] = []
-    found: Dict[str, np.float32] = {}
+    found: Dict[str, str] = {}
 
     def __init__(
         self,
@@ -186,8 +186,8 @@ class HideAndSeekEnv(ParallelEnv):
         t_done = 1 if self.agents == [] else 0
 
         done = {
-            "seekers": {agent.name: np.float32(t_done) for agent in self.seekers},
-            "hiders": {agent.name: np.float32(t_done) for agent in self.hiders},
+            "seekers": {agent.name: t_done for agent in self.seekers},
+            "hiders": {agent.name: t_done for agent in self.hiders},
         }
 
         self.game_time -= 1  # Decrease the time left with each step
@@ -350,8 +350,8 @@ class HideAndSeekEnv(ParallelEnv):
 
     def calculate_rewards_and_terminations(self):
         rewards = {
-            "hiders": {h.name: np.float32(0.0) for h in self.hiders},
-            "seekers": {s.name: np.float32(0.0) for s in self.seekers},
+            "hiders": {h.name: 0.0 for h in self.hiders},
+            "seekers": {s.name: 0.0 for s in self.seekers},
         }
         terminations = {"hiders": False, "seekers": False}
         won = {"hiders": False, "seekers": False}
