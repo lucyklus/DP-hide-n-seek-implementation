@@ -8,6 +8,8 @@ from enum import Enum
 from typing import List, Dict
 from pettingzoo import ParallelEnv
 
+from rendering.renderer import Rewards, HiderRewards, SeekerRewards
+
 
 class AgentType(Enum):
     HIDER = 0
@@ -40,10 +42,12 @@ class Agent:
 
 
 SEEKER_DISCOVERY_REWARD = 10.0
+SEEKER_DISCOVERY_BONUS = 2.5
 SEEKER_TIME_REWARD = 0.1
 SEEKER_DISCOVERY_PENALTY = -5.0
 
 HIDER_HIDDEN_REWARD = 10.0
+HIDER_HIDDEN_BONUS = 2.5
 HIDER_DISCOVERY_PENALTY = -5.0
 HIDER_TIME_REWARD = 0.1
 NEXT_TO_WALL_REWARD = 0.5
@@ -181,7 +185,8 @@ class HideAndSeekEnv(ParallelEnv):
                         if self.found[hider.name] is None:
                             self.found[hider.name] = seeker.name
 
-        rewards, terminations, won = self.calculate_rewards_and_terminations()
+        terminations = self.calculate_terminations()
+        rewards, won = self.calculate_rewards(terminations)
 
         t_done = 1 if self.agents == [] else 0
 
@@ -348,91 +353,134 @@ class HideAndSeekEnv(ParallelEnv):
                 if self.wall[x + dx][y + dy] == 1:
                     return True
 
-    def calculate_rewards_and_terminations(self):
-        rewards = {
-            "hiders": {h.name: 0.0 for h in self.hiders},
-            "seekers": {s.name: 0.0 for s in self.seekers},
+    def calculate_terminations(self):
+        terminations = {
+            "hiders": False,
+            "seekers": False,
         }
-        terminations = {"hiders": False, "seekers": False}
+        if self.hider_time_limit_exceeded():
+            # If hider's time limit is exceeded terminate the hider
+            terminations["hiders"] = True
+
+        if not self.seeker_time_limit_exceeded():
+            hidden = len(self.hiders) - len(
+                [h for h in self.found if self.found[h] is not None]
+            )
+            if terminations["hiders"] and hidden == 0:  # Seekers won
+                terminations["hiders"] = True
+                terminations["seekers"] = True
+        else:
+            terminations["seekers"] = True
+
+        return terminations
+
+    def calculate_rewards(self, terminations):
+        rewards = Rewards(
+            hiders={h.name: HiderRewards(0.0, 0.0, 0.0, 0.0, 0.0) for h in self.hiders},
+            seekers={s.name: SeekerRewards(0.0, 0.0, 0.0, 0.0) for s in self.seekers},
+            hiders_total_reward=0.0,
+            seekers_total_reward=0.0,
+        )
         won = {"hiders": False, "seekers": False}
         hidden = len(self.hiders) - len(
             [h for h in self.found if self.found[h] is not None]
         )
 
-        if self.hider_time_limit_exceeded():
-            # If hider's time limit is exceeded terminate the hider
-            terminations["hiders"] = True
         if not self.seeker_time_limit_exceeded():
             # Check if seeker found the hider
             if terminations["hiders"] and hidden == 0:  # Seekers won
-                terminations["hiders"] = True
-                terminations["seekers"] = True
                 # Calculate rewards for the seekers
                 for s in self.seekers:
                     # Time Reward for Seekers
-                    rewards["seekers"][s.name] += SEEKER_TIME_REWARD * self.game_time
-
-                    # Discovery Reward for Seekers
-                    for f in self.found:
-                        if self.found[f] == s.name:
-                            rewards["seekers"][s.name] += SEEKER_DISCOVERY_REWARD
+                    rewards.seekers[s.name].time_reward += (
+                        SEEKER_TIME_REWARD * self.game_time
+                    )
+                    rewards.seekers[s.name].total_reward += (
+                        SEEKER_TIME_REWARD * self.game_time
+                    )
 
                 for h in self.hiders:
                     # Time Reward for Hiders
-                    rewards["hiders"][h.name] += HIDER_TIME_REWARD * (
+                    rewards.hiders[h.name].time_reward += HIDER_TIME_REWARD * (
+                        self.total_game_time - self.hider_time_limit - self.game_time
+                    )
+                    rewards.hiders[h.name].total_reward += HIDER_TIME_REWARD * (
                         self.total_game_time - self.hider_time_limit - self.game_time
                     )
 
                     if self.is_near_wall(h.x, h.y):
-                        rewards["hiders"][h.name] += NEXT_TO_WALL_REWARD
-
-                    # Discovery Penalty for Hiders
-                    for f in self.found:
-                        if self.found[f] != None:
-                            rewards["hiders"][h.name] += HIDER_DISCOVERY_PENALTY
+                        rewards.hiders[
+                            h.name
+                        ].next_to_wall_reward += NEXT_TO_WALL_REWARD
+                        rewards.hiders[h.name].total_reward += NEXT_TO_WALL_REWARD
 
                 won["seekers"] = True
                 self.game_over()
         else:  # Hiders won
-            # Terminate the seeker when their time is exhausted and calculate rewards
-            terminations["seekers"] = True
-
             # Calculate rewards for the hiders
             for h in self.hiders:
                 # Reward for count of hidden hiders
-                rewards["hiders"][h.name] += HIDER_HIDDEN_REWARD * hidden
+                rewards.hiders[h.name].hidden_reward += HIDER_HIDDEN_REWARD * hidden
+                rewards.hiders[h.name].total_reward += HIDER_HIDDEN_REWARD * hidden
+
+                if self.found[h.name] is None:
+                    rewards.hiders[h.name].hidden_reward += HIDER_HIDDEN_BONUS
 
                 # Reward for hiding next to the wall
                 if self.is_near_wall(h.x, h.y):
-                    rewards["hiders"][h.name] += NEXT_TO_WALL_REWARD
+                    rewards.hiders[h.name].next_to_wall_reward += NEXT_TO_WALL_REWARD
+                    rewards.hiders[h.name].total_reward += NEXT_TO_WALL_REWARD
 
             for s in self.seekers:
-                # Reward for found hiders
-                for f in self.found:
-                    if self.found[f] == s.name:
-                        rewards["seekers"][s.name] += SEEKER_DISCOVERY_REWARD
                 # Penalty for not finding hiders
-                rewards["seekers"][s.name] += SEEKER_DISCOVERY_PENALTY * hidden
+                rewards.seekers[s.name].discovery_penalty += (
+                    SEEKER_DISCOVERY_PENALTY * hidden
+                )
+                rewards.seekers[s.name].total_reward += (
+                    SEEKER_DISCOVERY_PENALTY * hidden
+                )
 
             won["hiders"] = True
             self.game_over()
 
-        return rewards, terminations, won
+        # Discovery Penalty for Hiders
+        for f in self.found:
+            if self.found[f] != None:
+                rewards.hiders[f].discovery_penalty += HIDER_DISCOVERY_PENALTY
+                rewards.hiders[f].total_reward += HIDER_DISCOVERY_PENALTY
+                rewards.seekers[
+                    self.found[f]
+                ].discovery_reward += SEEKER_DISCOVERY_BONUS
+                rewards.seekers[self.found[f]].total_reward += SEEKER_DISCOVERY_BONUS
+                for seeker in rewards.seekers:
+                    rewards.seekers[seeker].discovery_reward += SEEKER_DISCOVERY_REWARD
+                    rewards.seekers[seeker].total_reward += SEEKER_DISCOVERY_REWARD
+
+        for h in self.hiders:
+            rewards.hiders_total_reward += rewards.hiders[h.name].total_reward
+
+        for s in self.seekers:
+            rewards.seekers_total_reward += rewards.seekers[s.name].total_reward
+
+        return rewards, won
 
     def render(self):
-        grid = [
-            [{"type": "", "name": ""} for _ in range(self.grid_size)]
-            for _ in range(self.grid_size)
-        ]
+        grid = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
         for hider in self.hiders:
-            grid[hider.x][hider.y] = {"type": "H", "name": hider.name}
+            if grid[hider.x][hider.y] != None:
+                grid[hider.x][hider.y].append({"type": "H", "name": hider.name})
+            else:
+                grid[hider.x][hider.y] = [{"type": "H", "name": hider.name}]
         for seeker in self.seekers:
-            grid[seeker.x][seeker.y] = {"type": "S", "name": seeker.name}
+            if grid[seeker.x][seeker.y] != None:
+                grid[seeker.x][seeker.y].append({"type": "S", "name": seeker.name})
+            else:
+                grid[seeker.x][seeker.y] = [{"type": "S", "name": seeker.name}]
 
         for x in range(len(self.wall)):
             for y in range(len(self.wall[x])):
                 if self.wall[x][y] == 1:
-                    grid[x][y] = {"type": "W", "name": f"wall_{x}_{y}"}
+                    grid[x][y] = [{"type": "W", "name": f"wall_{x}_{y}"}]
 
         return grid
 
