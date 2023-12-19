@@ -7,13 +7,13 @@ from typing import List, Dict
 import os
 import json
 
-from rendering.renderer import GameRenderer, Episode, Frame
+from rendering.renderer import GameRenderer, Episode, Frame, Rewards
 
 
 TOTAL_TIME = 100
 HIDING_TIME = 50
 VISIBILITY = 2
-EPISODES = 80000
+EPISODES = 80_000
 GRID_SIZE = 7
 USE_CHECKPOINTS = False
 N_SEEKERS = 2
@@ -127,11 +127,16 @@ def train_data():
     file_n = 0
     training_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
+    if os.path.exists("./results") == False:
+        os.mkdir("./results")
+
+    if os.path.exists(f"./results/{training_date}") == False:
+        os.mkdir(f"./results/{training_date}")
     # Episodes
     for episode in range(EPISODES):
         if episode_n == EPISODE_PART_SIZE:
             file_n += 1
-            save_file = open(f"./results/{training_date}_part{file_n}.json", "w")
+            save_file = open(f"./results/{training_date}/part{file_n}.json", "w")
             json.dump(
                 episodes_data, save_file, indent=2, default=lambda obj: obj.__dict__
             )
@@ -139,10 +144,15 @@ def train_data():
             episodes_data: List[Episode] = []
             episode_n = 0
 
-        ep: Episode = []
-        state = env.reset()
+        ep: Episode = Episode(
+            episode,
+            Rewards(
+                hiders={}, hiders_total_reward=0, seekers={}, seekers_total_reward=0
+            ),
+            [],
+        )
+        env.reset()
         done = False
-        ep_rewards = None
         # TODO: Divide this into two parts, one for seekers and one for hiders
         obs = env.get_observations()
         old_seeker_observation = obs["seekers"]
@@ -159,14 +169,17 @@ def train_data():
             buffer_hiders.save2memory(
                 old_hiders_observation,
                 hiders_actions,
-                rewards["hiders"],
+                {hider: rewards.hiders[hider].total_reward for hider in rewards.hiders},
                 new_obs["hiders"],
                 done["hiders"],
             )
             buffer_seekers.save2memory(
                 old_seeker_observation,
                 seekers_actions,
-                rewards["seekers"],
+                {
+                    seeker: rewards.seekers[seeker].total_reward
+                    for seeker in rewards.seekers
+                },
                 new_obs["seekers"],
                 done["seekers"],
             )
@@ -187,10 +200,9 @@ def train_data():
                 # Learn according to agent's RL algorithm
                 seekers.learn(experiences)
 
-            ep.append(
+            ep.frames.append(
                 Frame(
                     state=env.render(),
-                    rewards=rewards,
                     actions={"seekers": seekers_actions, "hiders": hiders_actions},
                     terminations=terminated,
                     done=done,
@@ -201,14 +213,11 @@ def train_data():
 
             old_seeker_observation = new_obs["seekers"]
             old_hiders_observation = new_obs["hiders"]
-            ep_rewards = rewards
+            ep.rewards = rewards
         # print(f"Episode: {episode} Rewards: {ep_rewards}")
 
-        seekers_score = sum(ep_rewards["seekers"].values())
-        hiders_score = sum(ep_rewards["hiders"].values())
-
-        seekers.scores.append(seekers_score)
-        hiders.scores.append(hiders_score)
+        seekers.scores.append(ep.rewards.seekers_total_reward)
+        hiders.scores.append(ep.rewards.hiders_total_reward)
         episodes_data.append(ep)
         episode_n += 1
 
@@ -226,27 +235,39 @@ def train_data():
 if __name__ == "__main__":
     episodes_data: List[Episode] = None
     while True:
-        x = input("1. Train\n2. Render\n3. Exit\n")
+        x = input("1. Train\n2. Render trained data\n3. Exit\n")
         if x == "1":
             episodes_data = train_data()
-            # Deserialize (for future use)
-            # data: list[Episode] = []
-            # with open(
-            #     "data.json",
-            # ) as json_file:
-            #     episodes_json: list[list[dict]] = json.load(json_file)
-            #     for ep in episodes_json:
-            #         frames: Episode = []
-            #         for frame in ep:
-            #             print(frame)
-            #             frames.append(Frame(**frame))
-            #         data.append(frames)
         elif x == "2":
-            if episodes_data == None:
-                print("No data to render")
-            else:
+            all_entries = os.listdir("./results")
+            directories = [
+                entry for entry in all_entries if os.path.isdir(f"./results/{entry}")
+            ]
+            print("Available models:")
+            for i, directory in enumerate(directories):
+                print(f"{i+1}. {directory}")
+
+            selected_date = input("Select a model: ")
+            folder_name = directories[int(selected_date) - 1]
+            all_parts = [
+                file
+                for file in os.listdir(f"./results/{folder_name}")
+                if file.endswith(".json") and file.startswith("part")
+            ]
+            number = input(f"Enter part number 1-{len(all_parts)}: ")
+            # Deserialize
+            data: list[Episode] = []
+            with open(f"./results/{folder_name}/part{number}.json", "r") as json_file:
+                episodes_json: list[list[dict]] = json.load(json_file)
+                for ep in episodes_json:
+                    episode: Episode = Episode(
+                        ep["number"], Rewards(**ep["rewards"]), []
+                    )
+                    for frame in ep["frames"]:
+                        episode.frames.append(Frame(**frame))
+                    data.append(episode)
                 GameRenderer(
-                    episodes_data,
+                    data,
                     GRID_SIZE,
                     TOTAL_TIME,
                     HIDING_TIME,
