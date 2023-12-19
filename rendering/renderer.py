@@ -5,9 +5,33 @@ import numpy as np
 
 
 @dataclass
+class HiderRewards:
+    time_reward: float  # HIDER_TIME_REWARD * (self.total_game_time - self.hider_time_limit - self.game_time)
+    next_to_wall_reward: float  # HIDER_NEXT_TO_WALL_REWARD
+    hidden_reward: float  # HIDER_HIDDEN_REWARD * hidden
+    discovery_penalty: float  # HIDER_DISCOVERY_PENALTY
+    total_reward: float
+
+
+@dataclass
+class SeekerRewards:
+    time_reward: float  # SEEKER_TIME_REWARD * self.game_time
+    discovery_reward: float  # SEEKER_DISCOVERY_REWARD
+    discovery_penalty: float  # SEEKER_DISCOVERY_PENALTY * hidden
+    total_reward: float
+
+
+@dataclass
+class Rewards:
+    hiders: Dict[str, HiderRewards]
+    hiders_total_reward: float
+    seekers: Dict[str, SeekerRewards]
+    seekers_total_reward: float
+
+
+@dataclass
 class Frame:
     state: List[List[Dict[str, str]]]
-    rewards: Dict[str, Dict[str, float]]
     actions: Dict[str, Dict[str, int]]
     terminations: Dict[str, bool]
     done: Dict[str, Dict[str, int]]
@@ -15,7 +39,12 @@ class Frame:
     found: Dict[str, str]
 
 
-Episode = List[Frame]
+@dataclass
+class Episode:
+    number: int
+    rewards: Rewards
+    frames: List[Frame]
+
 
 FRAMERATE = 30
 CELL_SIZE = 100
@@ -192,31 +221,36 @@ class GameRenderer:
     ):
         for x, col in enumerate(frame.state):
             for y, cell in enumerate(col):
-                if cell["type"] == "W":
-                    if self.walls_group.get(f"frame_{x}_{y}") is None:
-                        self.walls_group[f"frame_{x}_{y}"] = Wall(image=self.wall_image)
-                    self.walls_group[f"frame_{x}_{y}"].set_pos(x, y)
-                elif cell["type"] == "S":
-                    if frame_i > self.hiding_time:
-                        self.seekers_group[cell["name"]].set_pos(
-                            x, y, frame.actions["seekers"][cell["name"]]
-                        )
-                        self.visibility_group[cell["name"]].set_pos(x, y)
-                        self.visibility_group[cell["name"]].set_visibility(True)
-                    else:
-                        self.visibility_group[cell["name"]].set_visibility(False)
-                        self.seekers_group[cell["name"]].set_pos(x, y, 4)
-
-                elif cell["type"] == "H":
-                    if frame.found[cell["name"]] is not None:
-                        self.hiders_group[cell["name"]].set_pos(x, y, 5)
-                    else:
-                        if frame_i < self.hiding_time:
-                            self.hiders_group[cell["name"]].set_pos(
-                                x, y, frame.actions["hiders"][cell["name"]]
+                if cell == None:
+                    continue
+                for entity in cell:
+                    if entity["type"] == "W":
+                        if self.walls_group.get(f"frame_{x}_{y}") is None:
+                            self.walls_group[f"frame_{x}_{y}"] = Wall(
+                                image=self.wall_image
                             )
+                        self.walls_group[f"frame_{x}_{y}"].set_pos(x, y)
+                    elif entity["type"] == "S":
+                        if frame_i > self.hiding_time:
+                            self.seekers_group[entity["name"]].set_pos(
+                                x, y, frame.actions["seekers"][entity["name"]]
+                            )
+                            self.visibility_group[entity["name"]].set_pos(x, y)
+                            self.visibility_group[entity["name"]].set_visibility(True)
                         else:
-                            self.hiders_group[cell["name"]].set_pos(x, y, 4)
+                            self.visibility_group[entity["name"]].set_visibility(False)
+                            self.seekers_group[entity["name"]].set_pos(x, y, 4)
+
+                    elif entity["type"] == "H":
+                        if frame.found[entity["name"]] is not None:
+                            self.hiders_group[entity["name"]].set_pos(x, y, 5)
+                        else:
+                            if frame_i < self.hiding_time:
+                                self.hiders_group[entity["name"]].set_pos(
+                                    x, y, frame.actions["hiders"][entity["name"]]
+                                )
+                            else:
+                                self.hiders_group[entity["name"]].set_pos(x, y, 4)
 
     def render_frame(self, frame_index):
         if frame_index < self.hiding_time:
@@ -241,9 +275,9 @@ class GameRenderer:
 
         self.create_groups()
 
-        for ep_index, ep in enumerate(self.episodes_data):
-            pygame.display.set_caption(f"Episode {ep_index}")
-            for frame_i, frame in enumerate(ep):
+        for ep in self.episodes_data:
+            pygame.display.set_caption(f"Episode {ep.number}")
+            for frame_i, frame in enumerate(ep.frames):
                 paused = False
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
@@ -278,10 +312,9 @@ class GameRenderer:
             if running == False:
                 break
 
-            if ep[-1].won["seekers"]:
-                total_rewards = sum(ep[-1].rewards["seekers"].values())
+            if ep.frames[-1].won["seekers"]:
                 text = self.font.render(
-                    f"Seekers won with total rewards: {total_rewards}",
+                    f"Seekers won with total rewards: {ep.rewards.seekers_total_reward}",
                     True,
                     (0, 0, 0),
                 )
@@ -290,9 +323,8 @@ class GameRenderer:
                     text, text.get_rect(center=self.screen.get_rect().center)
                 )
             else:
-                total_rewards = sum(ep[-1].rewards["hiders"].values())
                 text = self.font.render(
-                    f"Hiders won with total rewards: {total_rewards}",
+                    f"Hiders won with total rewards: {ep.rewards.hiders_total_reward}",
                     True,
                     (0, 0, 0),
                 )
