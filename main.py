@@ -6,6 +6,7 @@ from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from typing import List, Dict
 import os
 import json
+import wandb
 
 from rendering.renderer import GameRenderer, Episode, Frame, Rewards
 
@@ -13,7 +14,7 @@ from rendering.renderer import GameRenderer, Episode, Frame, Rewards
 TOTAL_TIME = 100
 HIDING_TIME = 50
 VISIBILITY = 2
-EPISODES = 80_000
+EPISODES = 100
 GRID_SIZE = 7
 USE_CHECKPOINTS = False
 N_SEEKERS = 2
@@ -21,8 +22,28 @@ N_HIDERS = 2
 
 EPISODE_PART_SIZE = 1000
 
+NETWORK_ARCHITECTURE = "mlp"
+HIDDEN_SIZE = [100, 100, 50]
+
 
 def train_data():
+    # start a new wandb run to track this script
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="marl-hide-n-seek",
+        # track hyperparameters and run metadata
+        config={
+            "n_hiders": N_HIDERS,
+            "n_seekers": N_SEEKERS,
+            "grid_size": GRID_SIZE,
+            "total_time": TOTAL_TIME,
+            "hiding_time": HIDING_TIME,
+            "visibility_radius": VISIBILITY,
+            "network_architecture": NETWORK_ARCHITECTURE,
+            "hidden_size": HIDDEN_SIZE,
+            "episodes": EPISODES,
+        },
+    )
     episodes_data: List[Episode] = []
     current_wall = [
         [0, 0, 0, 1, 0, 0, 0],
@@ -47,8 +68,8 @@ def train_data():
     env.reset()
 
     NET_CONFIG = {
-        "arch": "mlp",  # Network architecture
-        "h_size": [100, 100, 50],  # Network hidden size
+        "arch": NETWORK_ARCHITECTURE,  # Network architecture
+        "h_size": HIDDEN_SIZE,  # Network hidden size
     }
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -216,11 +237,47 @@ def train_data():
             ep.rewards = rewards
         # print(f"Episode: {episode} Rewards: {ep_rewards}")
 
+        log_data = {}
+
+        for hider in ep.rewards.hiders:
+            log_data[f"hider_{hider}_reward"] = ep.rewards.hiders[hider].total_reward
+            log_data[f"hider_{hider}_penalty"] = ep.rewards.hiders[
+                hider
+            ].discovery_penalty
+
+        for seeker in ep.rewards.seekers:
+            log_data[f"seeker_{seeker}_reward"] = ep.rewards.seekers[
+                seeker
+            ].total_reward
+            log_data[f"seeker_{seeker}_penalty"] = ep.rewards.seekers[
+                seeker
+            ].discovery_penalty
+
+        # Total rewards and penalties
+        log_data["seekers_total_reward"] = ep.rewards.seekers_total_reward
+        log_data["hiders_total_reward"] = ep.rewards.hiders_total_reward
+        log_data["seekers_penalty"] = sum(
+            [
+                ep.rewards.seekers[seeker].discovery_penalty
+                for seeker in ep.rewards.seekers
+            ]
+        )
+        log_data["hiders_penalty"] = sum(
+            [ep.rewards.hiders[hider].discovery_penalty for hider in ep.rewards.hiders]
+        )
+
+        wandb.log(log_data)
         seekers.scores.append(ep.rewards.seekers_total_reward)
         hiders.scores.append(ep.rewards.hiders_total_reward)
         episodes_data.append(ep)
         episode_n += 1
 
+    file_n += 1
+    save_file = open(f"./results/{training_date}/part{file_n}.json", "w")
+    json.dump(episodes_data, save_file, indent=2, default=lambda obj: obj.__dict__)
+    save_file.close()
+    episodes_data: List[Episode] = []
+    episode_n = 0
     if os.path.exists("./checkpoints") == False:
         os.mkdir("./checkpoints")
     seekers.saveCheckpoint(
