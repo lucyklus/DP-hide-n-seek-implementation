@@ -14,7 +14,7 @@ from rendering.renderer import GameRenderer, Episode, Frame, Rewards
 TOTAL_TIME = 100
 HIDING_TIME = 50
 VISIBILITY = 2
-EPISODES = 100
+EPISODES = 50_000
 GRID_SIZE = 7
 USE_CHECKPOINTS = False
 N_SEEKERS = 2
@@ -26,7 +26,7 @@ NETWORK_ARCHITECTURE = "mlp"
 HIDDEN_SIZE = [100, 100, 50]
 
 
-def train_data():
+def train_data(random_seekers=False, random_hiders=False):
     # start a new wandb run to track this script
     wandb.init(
         # set the wandb project where this run will be logged
@@ -42,6 +42,8 @@ def train_data():
             "network_architecture": NETWORK_ARCHITECTURE,
             "hidden_size": HIDDEN_SIZE,
             "episodes": EPISODES,
+            "random_seekers": random_seekers,
+            "random_hiders": random_hiders,
         },
     )
     episodes_data: List[Episode] = []
@@ -75,74 +77,78 @@ def train_data():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     field_names = ["state", "action", "reward", "next_state", "done"]
 
-    # Seekers
-    seekers_names = [agent.name for agent in env.seekers]
+    if not random_seekers:
+        # Seekers
+        seekers_names = [agent.name for agent in env.seekers]
 
-    state_dim_seekers = [
-        # NN needs space dimensions (.shape), it can't work with discrete values, so we use MultiDiscrete
-        env.observation_space(agent).shape
-        for agent in seekers_names
-    ]
+        state_dim_seekers = [
+            # NN needs space dimensions (.shape), it can't work with discrete values, so we use MultiDiscrete
+            env.observation_space(agent).shape
+            for agent in seekers_names
+        ]
 
-    action_dim_seekers = [
-        # we are calling .n because we have discrete action space
-        env.action_space(agent).n
-        for agent in seekers_names
-    ]
+        action_dim_seekers = [
+            # we are calling .n because we have discrete action space
+            env.action_space(agent).n
+            for agent in seekers_names
+        ]
 
-    # Saving the states and then selects samples from them at each specified batch and learns on them
-    buffer_seekers = MultiAgentReplayBuffer(
-        memory_size=1000, field_names=field_names, agent_ids=seekers_names
-    )
+        # Saving the states and then selects samples from them at each specified batch and learns on them
+        buffer_seekers = MultiAgentReplayBuffer(
+            memory_size=1000, field_names=field_names, agent_ids=seekers_names
+        )
 
-    # NN for seekers agents
-    seekers = MATD3(
-        state_dims=state_dim_seekers,
-        action_dims=action_dim_seekers,
-        n_agents=len(seekers_names),
-        agent_ids=seekers_names,  # These names must be sorted in a way we stated them in state_dim_seekers and action_dim_seekers
-        discrete_actions=True,
-        one_hot=False,
-        min_action=None,
-        max_action=None,
-        device=device,
-        net_config=NET_CONFIG,
-    )
-    if USE_CHECKPOINTS:
-        try:
-            seekers.loadCheckpoint("./checkpoints/seekers.chkp")
-            print("Seekers checkpoint loaded")
-        except:
-            print("No seekers checkpoint found")
+        # NN for seekers agents
+        seekers = MATD3(
+            state_dims=state_dim_seekers,
+            action_dims=action_dim_seekers,
+            n_agents=len(seekers_names),
+            agent_ids=seekers_names,  # These names must be sorted in a way we stated them in state_dim_seekers and action_dim_seekers
+            discrete_actions=True,
+            one_hot=False,
+            min_action=None,
+            max_action=None,
+            device=device,
+            net_config=NET_CONFIG,
+        )
+        if USE_CHECKPOINTS:
+            try:
+                seekers.loadCheckpoint("./checkpoints/seekers.chkp")
+                print("Seekers checkpoint loaded")
+            except:
+                print("No seekers checkpoint found")
 
-    # Hiders
-    hiders_names = [agent.name for agent in env.hiders]
+    if not random_hiders:
+        # Hiders
+        hiders_names = [agent.name for agent in env.hiders]
 
-    state_dim_hiders = [env.observation_space(agent).shape for agent in hiders_names]
+        state_dim_hiders = [
+            env.observation_space(agent).shape for agent in hiders_names
+        ]
 
-    action_dim_hiders = [env.action_space(agent).n for agent in hiders_names]
+        action_dim_hiders = [env.action_space(agent).n for agent in hiders_names]
 
-    buffer_hiders = MultiAgentReplayBuffer(
-        memory_size=1000, field_names=field_names, agent_ids=hiders_names
-    )
+        buffer_hiders = MultiAgentReplayBuffer(
+            memory_size=1000, field_names=field_names, agent_ids=hiders_names
+        )
 
-    hiders = MATD3(
-        state_dims=state_dim_hiders,
-        action_dims=action_dim_hiders,
-        n_agents=len(hiders_names),
-        agent_ids=hiders_names,
-        discrete_actions=True,
-        one_hot=False,
-        min_action=None,
-        max_action=None,
-        device=device,
-    )
-    if USE_CHECKPOINTS:
-        try:
-            hiders.loadCheckpoint("./checkpoints/hiders.chkp")
-            print("Hiders checkpoint loaded")
-        except:
-            print("No hiders checkpoint found")
+        hiders = MATD3(
+            state_dims=state_dim_hiders,
+            action_dims=action_dim_hiders,
+            n_agents=len(hiders_names),
+            agent_ids=hiders_names,
+            discrete_actions=True,
+            one_hot=False,
+            min_action=None,
+            max_action=None,
+            device=device,
+        )
+        if USE_CHECKPOINTS:
+            try:
+                hiders.loadCheckpoint("./checkpoints/hiders.chkp")
+                print("Hiders checkpoint loaded")
+            except:
+                print("No hiders checkpoint found")
 
     episode_n = 0
     file_n = 0
@@ -179,47 +185,72 @@ def train_data():
         old_seeker_observation = obs["seekers"]
         old_hiders_observation = obs["hiders"]
         while env.agents:
-            hiders_actions: Dict[str, int] = hiders.getAction(old_hiders_observation)
-            seekers_actions: Dict[str, int] = seekers.getAction(old_seeker_observation)
+            if not random_hiders:
+                hiders_actions: Dict[str, int] = hiders.getAction(
+                    old_hiders_observation
+                )
+            else:
+                # Generate random actions
+                hiders_actions: Dict[str, int] = {
+                    agent: int(env.action_space(agent).sample())
+                    for agent in old_hiders_observation
+                }
+            if not random_seekers:
+                seekers_actions: Dict[str, int] = seekers.getAction(
+                    old_seeker_observation
+                )
+            else:
+                # Generate random actions
+                seekers_actions: Dict[str, int] = {
+                    agent: int(env.action_space(agent).sample())
+                    for agent in old_seeker_observation
+                }
 
             new_obs, rewards, terminated, done, won, found = env.step(
                 hiders_actions, seekers_actions
             )
 
             # Adding to buffer
-            buffer_hiders.save2memory(
-                old_hiders_observation,
-                hiders_actions,
-                {hider: rewards.hiders[hider].total_reward for hider in rewards.hiders},
-                new_obs["hiders"],
-                done["hiders"],
-            )
-            buffer_seekers.save2memory(
-                old_seeker_observation,
-                seekers_actions,
-                {
-                    seeker: rewards.seekers[seeker].total_reward
-                    for seeker in rewards.seekers
-                },
-                new_obs["seekers"],
-                done["seekers"],
-            )
+            if not random_hiders:
+                buffer_hiders.save2memory(
+                    old_hiders_observation,
+                    hiders_actions,
+                    {
+                        hider: rewards.hiders[hider].total_reward
+                        for hider in rewards.hiders
+                    },
+                    new_obs["hiders"],
+                    done["hiders"],
+                )
+            if not random_seekers:
+                buffer_seekers.save2memory(
+                    old_seeker_observation,
+                    seekers_actions,
+                    {
+                        seeker: rewards.seekers[seeker].total_reward
+                        for seeker in rewards.seekers
+                    },
+                    new_obs["seekers"],
+                    done["seekers"],
+                )
 
             # Train hiders
-            if (buffer_hiders.counter % hiders.learn_step == 0) and (
-                len(buffer_hiders) >= hiders.batch_size
-            ):
-                experiences = buffer_hiders.sample(hiders.batch_size)
-                # Learn according to agent's RL algorithm
-                hiders.learn(experiences)
+            if not random_hiders:
+                if (buffer_hiders.counter % hiders.learn_step == 0) and (
+                    len(buffer_hiders) >= hiders.batch_size
+                ):
+                    experiences = buffer_hiders.sample(hiders.batch_size)
+                    # Learn according to agent's RL algorithm
+                    hiders.learn(experiences)
 
             # Train seekers
-            if (buffer_seekers.counter % seekers.learn_step == 0) and (
-                len(buffer_seekers) >= seekers.batch_size
-            ):
-                experiences = buffer_seekers.sample(seekers.batch_size)
-                # Learn according to agent's RL algorithm
-                seekers.learn(experiences)
+            if not random_seekers:
+                if (buffer_seekers.counter % seekers.learn_step == 0) and (
+                    len(buffer_seekers) >= seekers.batch_size
+                ):
+                    experiences = buffer_seekers.sample(seekers.batch_size)
+                    # Learn according to agent's RL algorithm
+                    seekers.learn(experiences)
 
             ep.frames.append(
                 Frame(
@@ -267,8 +298,12 @@ def train_data():
         )
 
         wandb.log(log_data)
-        seekers.scores.append(ep.rewards.seekers_total_reward)
-        hiders.scores.append(ep.rewards.hiders_total_reward)
+        if not random_seekers:
+            seekers.scores.append(ep.rewards.seekers_total_reward)
+
+        if not random_hiders:
+            hiders.scores.append(ep.rewards.hiders_total_reward)
+
         episodes_data.append(ep)
         episode_n += 1
 
@@ -280,10 +315,13 @@ def train_data():
     episode_n = 0
     if os.path.exists("./checkpoints") == False:
         os.mkdir("./checkpoints")
-    seekers.saveCheckpoint(
-        "./checkpoints/seekers.chkp"
-    )  # TODO: dont overwrite, save versions with timestamp
-    hiders.saveCheckpoint("./checkpoints/hiders.chkp")
+
+    if not random_seekers:
+        seekers.saveCheckpoint(
+            "./checkpoints/seekers.chkp"
+        )  # TODO: dont overwrite, save versions with timestamp
+    if not random_hiders:
+        hiders.saveCheckpoint("./checkpoints/hiders.chkp")
 
     env.close()
     return episodes_data
@@ -294,7 +332,12 @@ if __name__ == "__main__":
     while True:
         x = input("1. Train\n2. Render trained data\n3. Exit\n")
         if x == "1":
-            episodes_data = train_data()
+            settings = input(
+                "1. No random agents\n2. Random seekers\n3. Random hiders\n4. Random seekers and hiders\n"
+            )
+            episodes_data = train_data(
+                settings == "2" or settings == "4", settings == "3" or settings == "4"
+            )
         elif x == "2":
             all_entries = os.listdir("./results")
             directories = [
