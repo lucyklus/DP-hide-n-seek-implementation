@@ -7,26 +7,24 @@ from typing import List, Dict
 import os
 import json
 import wandb
+from wall_configs import wall_configs
 
 from rendering.renderer import GameRenderer, Episode, Frame, Rewards
+from dotenv import load_dotenv
 
 
-TOTAL_TIME = 100
-HIDING_TIME = 50
-VISIBILITY = 2
-EPISODES = 50_000
-GRID_SIZE = 7
-USE_CHECKPOINTS = False
-N_SEEKERS = 2
-N_HIDERS = 2
-
-EPISODE_PART_SIZE = 1000
-
-NETWORK_ARCHITECTURE = "mlp"
-HIDDEN_SIZE = [100, 100, 50]
-
-
-def train_data(random_seekers=False, random_hiders=False):
+def train_data(random_seekers=False, random_hiders=False, walls=wall_configs[0]):
+    N_HIDERS = int(os.getenv("N_HIDERS"))
+    N_SEEKERS = int(os.getenv("N_SEEKERS"))
+    GRID_SIZE = int(os.getenv("GRID_SIZE"))
+    TOTAL_TIME = int(os.getenv("TOTAL_TIME"))
+    HIDING_TIME = int(os.getenv("HIDING_TIME"))
+    VISIBILITY = int(os.getenv("VISIBILITY"))
+    NETWORK_ARCHITECTURE = "mlp"
+    HIDDEN_SIZE = [100, 100, 50]
+    EPISODES = int(os.getenv("EPISODES"))
+    EPISODE_PART_SIZE = int(os.getenv("EPISODE_PART_SIZE"))
+    USE_CHECKPOINTS = bool(os.getenv("USE_CHECKPOINTS"))
     # start a new wandb run to track this script
     wandb.init(
         # set the wandb project where this run will be logged
@@ -47,19 +45,9 @@ def train_data(random_seekers=False, random_hiders=False):
         },
     )
     episodes_data: List[Episode] = []
-    current_wall = [
-        [0, 0, 0, 1, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 1, 0, 0, 0],
-        [1, 0, 1, 1, 1, 0, 1],
-        [0, 0, 0, 1, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 1, 0, 0, 0],
-    ]
 
     env = hidenseek.HideAndSeekEnv(
-        # TODO: Add to game config
-        wall=current_wall,
+        wall=walls,
         num_hiders=N_HIDERS,
         num_seekers=N_SEEKERS,
         grid_size=GRID_SIZE,
@@ -328,6 +316,7 @@ def train_data(random_seekers=False, random_hiders=False):
 
 
 if __name__ == "__main__":
+    load_dotenv()
     episodes_data: List[Episode] = None
     while True:
         x = input("1. Train\n2. Render trained data\n3. Exit\n")
@@ -335,8 +324,11 @@ if __name__ == "__main__":
             settings = input(
                 "1. No random agents\n2. Random seekers\n3. Random hiders\n4. Random seekers and hiders\n"
             )
+            walls = int(input("Wall configuration (1-4): ")) - 1
             episodes_data = train_data(
-                settings == "2" or settings == "4", settings == "3" or settings == "4"
+                settings == "2" or settings == "4",
+                settings == "3" or settings == "4",
+                wall_configs[walls],
             )
         elif x == "2":
             all_entries = os.listdir("./results")
@@ -368,12 +360,12 @@ if __name__ == "__main__":
                     data.append(episode)
                 GameRenderer(
                     data,
-                    GRID_SIZE,
-                    TOTAL_TIME,
-                    HIDING_TIME,
-                    VISIBILITY,
-                    N_HIDERS,
-                    N_SEEKERS,
+                    int(os.getenv("GRID_SIZE")),
+                    int(os.getenv("TOTAL_TIME")),
+                    int(os.getenv("HIDING_TIME")),
+                    int(os.getenv("VISIBILITY")),
+                    int(os.getenv("N_HIDERS")),
+                    int(os.getenv("N_SEEKERS")),
                 ).render()
         elif x == "3":
             break
