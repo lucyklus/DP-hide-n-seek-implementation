@@ -63,7 +63,6 @@ __pypackages__/
 *.sage.py
 
 # Environments
-.env
 .venv
 env/
 venv/
