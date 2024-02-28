@@ -487,8 +487,8 @@ class HideAndSeekEnv(ParallelEnv):
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent_name):
         possible_places = self.grid_size * self.grid_size
-        oponents = self.seekers if agent_name.split("_")[0] == "hiders" else self.hiders
-        return spaces.MultiDiscrete([possible_places] * (len(oponents) + 1))
+        team = self.hiders if agent_name.split("_")[0] == "hiders" else self.seekers
+        return spaces.MultiDiscrete([possible_places] * (len(team) + 1))
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent_name):

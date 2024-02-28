@@ -20,30 +20,28 @@ def train_data(random_seekers=False, random_hiders=False, walls=wall_configs[0])
     TOTAL_TIME = int(os.getenv("TOTAL_TIME"))
     HIDING_TIME = int(os.getenv("HIDING_TIME"))
     VISIBILITY = int(os.getenv("VISIBILITY"))
-    NETWORK_ARCHITECTURE = "mlp"
     HIDDEN_SIZE = [100, 100, 50]
     EPISODES = int(os.getenv("EPISODES"))
     EPISODE_PART_SIZE = int(os.getenv("EPISODE_PART_SIZE"))
     USE_CHECKPOINTS = bool(os.getenv("USE_CHECKPOINTS"))
     # start a new wandb run to track this script
-    wandb.init(
-        # set the wandb project where this run will be logged
-        project="marl-hide-n-seek",
-        # track hyperparameters and run metadata
-        config={
-            "n_hiders": N_HIDERS,
-            "n_seekers": N_SEEKERS,
-            "grid_size": GRID_SIZE,
-            "total_time": TOTAL_TIME,
-            "hiding_time": HIDING_TIME,
-            "visibility_radius": VISIBILITY,
-            "network_architecture": NETWORK_ARCHITECTURE,
-            "hidden_size": HIDDEN_SIZE,
-            "episodes": EPISODES,
-            "random_seekers": random_seekers,
-            "random_hiders": random_hiders,
-        },
-    )
+    # wandb.init(
+    #     # set the wandb project where this run will be logged
+    #     project="marl-hide-n-seek",
+    #     # track hyperparameters and run metadata
+    #     config={
+    #         "n_hiders": N_HIDERS,
+    #         "n_seekers": N_SEEKERS,
+    #         "grid_size": GRID_SIZE,
+    #         "total_time": TOTAL_TIME,
+    #         "hiding_time": HIDING_TIME,
+    #         "visibility_radius": VISIBILITY,
+    #         "hidden_size": HIDDEN_SIZE,
+    #         "episodes": EPISODES,
+    #         "random_seekers": random_seekers,
+    #         "random_hiders": random_hiders,
+    #     },
+    # )
     episodes_data: List[Episode] = []
 
     env = hidenseek.HideAndSeekEnv(
@@ -56,11 +54,6 @@ def train_data(random_seekers=False, random_hiders=False, walls=wall_configs[0])
         visibility_radius=VISIBILITY,
     )
     env.reset()
-
-    NET_CONFIG = {
-        "arch": NETWORK_ARCHITECTURE,  # Network architecture
-        "h_size": HIDDEN_SIZE,  # Network hidden size
-    }
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     field_names = ["state", "action", "reward", "next_state", "done"]
@@ -90,14 +83,13 @@ def train_data(random_seekers=False, random_hiders=False, walls=wall_configs[0])
         seekers = MATD3(
             state_dims=state_dim_seekers,
             action_dims=action_dim_seekers,
-            n_agents=len(seekers_names),
-            agent_ids=seekers_names,  # These names must be sorted in a way we stated them in state_dim_seekers and action_dim_seekers
+            n_agents=N_SEEKERS,
+            agent_ids=seekers_names,
             discrete_actions=True,
             one_hot=False,
             min_action=None,
             max_action=None,
             device=device,
-            net_config=NET_CONFIG,
         )
         if USE_CHECKPOINTS:
             try:
@@ -123,7 +115,7 @@ def train_data(random_seekers=False, random_hiders=False, walls=wall_configs[0])
         hiders = MATD3(
             state_dims=state_dim_hiders,
             action_dims=action_dim_hiders,
-            n_agents=len(hiders_names),
+            n_agents=N_HIDERS,
             agent_ids=hiders_names,
             discrete_actions=True,
             one_hot=False,
@@ -285,7 +277,7 @@ def train_data(random_seekers=False, random_hiders=False, walls=wall_configs[0])
             [ep.rewards.hiders[hider].discovery_penalty for hider in ep.rewards.hiders]
         )
 
-        wandb.log(log_data)
+        # wandb.log(log_data)
         if not random_seekers:
             seekers.scores.append(ep.rewards.seekers_total_reward)
 
@@ -301,15 +293,15 @@ def train_data(random_seekers=False, random_hiders=False, walls=wall_configs[0])
     save_file.close()
     episodes_data: List[Episode] = []
     episode_n = 0
-    if os.path.exists("./checkpoints") == False:
-        os.mkdir("./checkpoints")
+    # if os.path.exists("./checkpoints") == False:
+    #     os.mkdir("./checkpoints")
 
-    if not random_seekers:
-        seekers.saveCheckpoint(
-            "./checkpoints/seekers.chkp"
-        )  # TODO: dont overwrite, save versions with timestamp
-    if not random_hiders:
-        hiders.saveCheckpoint("./checkpoints/hiders.chkp")
+    # if not random_seekers:
+    #     seekers.saveCheckpoint(
+    #         "./checkpoints/seekers.chkp"
+    #     )  # TODO: dont overwrite, save versions with timestamp
+    # if not random_hiders:
+    #     hiders.saveCheckpoint("./checkpoints/hiders.chkp")
 
     env.close()
     return episodes_data
