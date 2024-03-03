@@ -74,22 +74,29 @@ class HideAndSeekEnv(ParallelEnv):
         total_time=50,
         hiding_time=30,
         visibility_radius=2,
+        static_hiders=False,
+        static_seekers=False,
     ):
         # Generate agents
         if num_seekers < 2 or num_hiders < 2:
             raise ValueError("Number of seekers and hiders must be at least 2")
 
+        self.static_seekers = static_seekers
+        self.static_hiders = static_hiders
+
         # Prepare seekers
-        seekers_x = 0
-        seekers_y = 0
+        seekers_x = grid_size - 1 if static_seekers else 0
+        seekers_y = grid_size - 1 if static_seekers else 0
+        print(f"Seekers cords: {seekers_x}, {seekers_y}")
         self.seekers = [
             Agent(f"seeker_{index}", AgentType.SEEKER, seekers_x, seekers_y)
             for index in range(num_seekers)
         ]
 
         # Prepare hiders
-        hiders_x = 0
-        hiders_y = 0
+        hiders_x = grid_size - 1 if static_hiders else 0
+        hiders_y = 0 if static_hiders else 0
+        print(f"Hiders cords: {hiders_x}, {hiders_y}")
         self.hiders = [
             Agent(f"hider_{index}", AgentType.HIDER, hiders_x, hiders_y)
             for index in range(num_hiders)
@@ -125,6 +132,18 @@ class HideAndSeekEnv(ParallelEnv):
         self.game_time = total_time
         self.hider_time_limit = hiding_time  # Hider has 30 seconds to hide
 
+        # Set observation space
+        self.observation_space = {
+            "seekers": {
+                agent.name: spaces.Box(0, self.grid_size - 1, shape=(2,), dtype=int)
+                for agent in self.seekers
+            },
+            "hiders": {
+                agent.name: spaces.Box(0, self.grid_size - 1, shape=(2,), dtype=int)
+                for agent in self.hiders
+            },
+        }
+
     def reset(self):
         """Reset the environment to a starting point.
 
@@ -139,12 +158,18 @@ class HideAndSeekEnv(ParallelEnv):
         self.agents = copy(self.possible_agents)
         self.found = {h.name: None for h in self.hiders}
 
+        seeker_x = self.grid_size - 1 if self.static_seekers else 0
+        seeker_y = self.grid_size - 1 if self.static_seekers else 0
+
         # Spawn the hider and seeker at opposite corners of the grid
         for seeker in self.seekers:
-            seeker.reset(0, 0)
+            seeker.reset(seeker_x, seeker_y)
+
+        hiders_x = self.grid_size - 1 if self.static_hiders else 0
+        hiders_y = 0 if self.static_hiders else 0
 
         for hider in self.hiders:
-            hider.reset(0, 0)
+            hider.reset(hiders_x, hiders_y)
 
         self.wallsCoords = []
 
@@ -299,40 +324,24 @@ class HideAndSeekEnv(ParallelEnv):
         """
         Return the observation for the agent
         """
-        observation = []
-        position = agent.x + agent.y * self.grid_size
-        observation.append(position)
-        if type == AgentType.SEEKER:
-            for hider in self.hiders:
-                if hider.name not in self.found:
-                    if self.check_visibility(agent.x, agent.y, hider.x, hider.y):
-                        position = hider.x + hider.y * self.grid_size
-                        observation.append(position)
-                    else:
-                        observation.append(-1)
-                else:
-                    observation.append(-2)
-        else:
-            for seeker in self.seekers:
-                position = seeker.x + seeker.y * self.grid_size
-                observation.append(position)
-
-        return np.array(observation, dtype=np.float32)
+        return np.array([agent.x, agent.y], dtype=np.float32)
 
     def get_observations(self):
         """
         Return the observations for all agents
         """
-        observations = {
-            "seekers": {
-                agent.name: self.get_observation(agent, AgentType.SEEKER)
-                for agent in self.seekers
-            },
-            "hiders": {
-                agent.name: self.get_observation(agent, AgentType.HIDER)
-                for agent in self.hiders
-            },
-        }
+        observations = {}
+        for agent in self.seekers:
+            observations[agent.name] = self.get_observation(agent, AgentType.SEEKER)
+        for agent in self.hiders:
+            if any(
+                self.check_visibility(agent.x, agent.y, seeker.x, seeker.y)
+                for seeker in self.seekers
+            ):
+                observations[agent.name] = self.get_observation(agent, AgentType.HIDER)
+            else:
+                observations[agent.name] = np.array([-1, -1], dtype=np.float32)
+
         return observations
 
     def game_over(self):
@@ -483,12 +492,6 @@ class HideAndSeekEnv(ParallelEnv):
                     grid[x][y] = [{"type": "W", "name": f"wall_{x}_{y}"}]
 
         return grid
-
-    @functools.lru_cache(maxsize=None)
-    def observation_space(self, agent_name):
-        possible_places = self.grid_size * self.grid_size
-        team = self.hiders if agent_name.split("_")[0] == "hiders" else self.seekers
-        return spaces.MultiDiscrete([possible_places] * (len(team) + 1))
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent_name):
