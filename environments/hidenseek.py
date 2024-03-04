@@ -192,11 +192,11 @@ class HideAndSeekEnv(ParallelEnv):
         """
 
         if not self.hider_time_limit_exceeded():
-            for agent_name in hiders_actions:
+            for agent_name in hiders_actions.keys():
                 self.move_agent(AgentType.HIDER, agent_name, hiders_actions[agent_name])
 
         if self.hider_time_limit_exceeded() and not self.seeker_time_limit_exceeded():
-            for agent_name in seekers_actions:
+            for agent_name in seekers_actions.keys():
                 self.move_agent(
                     AgentType.SEEKER, agent_name, seekers_actions[agent_name]
                 )

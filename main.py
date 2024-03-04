@@ -1,7 +1,9 @@
 import datetime
 from environments import hidenseek
+import numpy as np
 import torch
 from agilerl.algorithms.matd3 import MATD3
+from agilerl.algorithms.maddpg import MADDPG
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from typing import List, Dict
 import os
@@ -74,42 +76,43 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     field_names = ["state", "action", "reward", "next_state", "done"]
+
     # Seekers
     seekers_names = [agent.name for agent in env.seekers]
+    state_dim_seekers = [
+        # NN needs space dimensions (.shape), it can't work with discrete values, so we use MultiDiscrete
+        env.observation_space["seekers"][agent].shape
+        for agent in seekers_names
+    ]
+    action_dim_seekers = [
+        # we are calling .n because we have discrete action space
+        env.action_space(agent).n
+        for agent in seekers_names
+    ]
 
     if agent_config in [
         AgentConfig.NO_RANDOM,
         AgentConfig.RANDOM_HIDERS,
         AgentConfig.STATIC_HIDERS,
     ]:
-
-        state_dim_seekers = [
-            # NN needs space dimensions (.shape), it can't work with discrete values, so we use MultiDiscrete
-            env.observation_space["seekers"][agent].shape
-            for agent in seekers_names
-        ]
-
-        action_dim_seekers = [
-            # we are calling .n because we have discrete action space
-            env.action_space(agent).n
-            for agent in seekers_names
-        ]
-
         # Saving the states and then selects samples from them at each specified batch and learns on them
         buffer_seekers = MultiAgentReplayBuffer(
-            memory_size=1000, field_names=field_names, agent_ids=seekers_names
+            memory_size=1000,
+            field_names=field_names,
+            agent_ids=seekers_names,
+            device=device,
         )
 
         # NN for seekers agents
-        seekers = MATD3(
+        seekers = MADDPG(  # MATD3(
             state_dims=state_dim_seekers,
             action_dims=action_dim_seekers,
             n_agents=N_SEEKERS,
             agent_ids=seekers_names,
             discrete_actions=True,
             one_hot=False,
-            min_action=0,
-            max_action=4,
+            min_action=None,
+            max_action=None,
             device=device,
         )
         if USE_CHECKPOINTS:
@@ -121,23 +124,24 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
 
     # Hiders
     hiders_names = [agent.name for agent in env.hiders]
+    state_dim_hiders = [
+        env.observation_space["hiders"][agent].shape for agent in hiders_names
+    ]
+    action_dim_hiders = [env.action_space(agent).n for agent in hiders_names]
+
     if agent_config in [
         AgentConfig.NO_RANDOM,
         AgentConfig.RANDOM_SEEKERS,
         AgentConfig.STATIC_SEEKERS,
     ]:
-
-        state_dim_hiders = [
-            env.observation_space["hiders"][agent].shape for agent in hiders_names
-        ]
-
-        action_dim_hiders = [env.action_space(agent).n for agent in hiders_names]
-
         buffer_hiders = MultiAgentReplayBuffer(
-            memory_size=1000, field_names=field_names, agent_ids=hiders_names
+            memory_size=1000,
+            field_names=field_names,
+            agent_ids=hiders_names,
+            device=device,
         )
 
-        hiders = MATD3(
+        hiders = MADDPG(  # MATD3(
             state_dims=state_dim_hiders,
             action_dims=action_dim_hiders,
             n_agents=N_HIDERS,
@@ -188,42 +192,72 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
         # TODO: Divide this into two parts, one for seekers and one for hiders
         observation = env.get_observations()
         while env.agents:
-            hiders_actions: Dict[str, int] = {}
+            # Get hider actions
             if agent_config in [
                 AgentConfig.NO_RANDOM,
                 AgentConfig.RANDOM_SEEKERS,
                 AgentConfig.STATIC_SEEKERS,
             ]:
-                hiders_actions: Dict[str, int] = hiders.getAction(observation)
+                hider_observation = {
+                    agent: observation[agent] for agent in hiders_names
+                }
+                hiders_cont_actions, hiders_discrete_action = hiders.getAction(
+                    hider_observation
+                )
             if agent_config == AgentConfig.STATIC_HIDERS:
-                hiders_actions: Dict[str, int] = {
+                hiders_discrete_action: Dict[str, int] = {
                     agent: hidenseek.Movement.STAY.value for agent in hiders_names
                 }
             if agent_config == AgentConfig.RANDOM_HIDERS:
                 # Generate random actions
-                hiders_actions: Dict[str, int] = {
+                hiders_discrete_action: Dict[str, int] = {
                     agent: int(env.action_space(agent).sample())
                     for agent in hiders_names
                 }
+            if (
+                agent_config == AgentConfig.STATIC_HIDERS
+                or agent_config == AgentConfig.RANDOM_HIDERS
+            ):
+                hiders_cont_actions = {
+                    agent: np.zeros(action_dim_hiders) for agent in hiders_names
+                }
+                for agent in hiders_names:
+                    hiders_cont_actions[agent][hiders_discrete_action[agent]] = 1
+
+            # Get seeker actions
             if agent_config in [
                 AgentConfig.NO_RANDOM,
                 AgentConfig.RANDOM_HIDERS,
                 AgentConfig.STATIC_HIDERS,
             ]:
-                seekers_actions: Dict[str, int] = seekers.getAction(observation)
+                seeker_observation = {
+                    agent: observation[agent] for agent in seekers_names
+                }
+                seekers_cont_actions, seekers_discrete_action = seekers.getAction(
+                    seeker_observation
+                )
             if agent_config == AgentConfig.STATIC_SEEKERS:
-                seekers_actions: Dict[str, int] = {
+                seekers_discrete_action: Dict[str, int] = {
                     agent: hidenseek.Movement.STAY.value for agent in seekers_names
                 }
             if agent_config == AgentConfig.RANDOM_SEEKERS:
                 # Generate random actions
-                seekers_actions: Dict[str, int] = {
+                seekers_discrete_action: Dict[str, int] = {
                     agent: int(env.action_space(agent).sample())
                     for agent in seekers_names
                 }
+            if (
+                agent_config == AgentConfig.STATIC_SEEKERS
+                or agent_config == AgentConfig.RANDOM_SEEKERS
+            ):
+                seekers_cont_actions = {
+                    agent: np.zeros(action_dim_seekers) for agent in seekers_names
+                }
+                for agent in seekers_names:
+                    seekers_cont_actions[agent][seekers_discrete_action[agent]] = 1
 
             new_obs, rewards, terminated, done, won, found = env.step(
-                hiders_actions, seekers_actions
+                hiders_discrete_action, seekers_discrete_action
             )
 
             # Adding to buffer
@@ -234,7 +268,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             ]:
                 buffer_hiders.save2memory(
                     observation,
-                    hiders_actions,
+                    hiders_cont_actions,
                     {
                         hider: rewards.hiders[hider].total_reward
                         for hider in rewards.hiders
@@ -249,7 +283,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             ]:
                 buffer_seekers.save2memory(
                     observation,
-                    seekers_actions,
+                    seekers_cont_actions,
                     {
                         seeker: rewards.seekers[seeker].total_reward
                         for seeker in rewards.seekers
@@ -287,7 +321,10 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             ep.frames.append(
                 Frame(
                     state=env.render(),
-                    actions={"seekers": seekers_actions, "hiders": hiders_actions},
+                    actions={
+                        "seekers": seekers_discrete_action,
+                        "hiders": hiders_discrete_action,
+                    },
                     terminations=terminated,
                     done=done,
                     won=won,
