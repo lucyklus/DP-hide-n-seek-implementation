@@ -3,7 +3,6 @@ from environments import hidenseek
 import numpy as np
 import torch
 from agilerl.algorithms.matd3 import MATD3
-from agilerl.algorithms.maddpg import MADDPG
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from typing import List, Dict
 import os
@@ -133,7 +132,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             device=device,
         )
 
-        hiders = MATD3(  # MATD3(
+        hiders = MATD3(
             state_dims=state_dim_hiders,
             action_dims=action_dim_hiders,
             n_agents=N_HIDERS,
@@ -314,8 +313,14 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
                 Frame(
                     state=env.render(),
                     actions={
-                        "seekers": seekers_discrete_action,
-                        "hiders": hiders_discrete_action,
+                        "seekers": {
+                            agent_name: int(seekers_discrete_action[agent_name])
+                            for agent_name in seekers_discrete_action
+                        },
+                        "hiders": {
+                            agent_name: int(hiders_discrete_action[agent_name])
+                            for agent_name in hiders_discrete_action
+                        },
                     },
                     terminations=terminated,
                     done=done,
