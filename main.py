@@ -356,7 +356,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             [ep.rewards.hiders[hider].discovery_penalty for hider in ep.rewards.hiders]
         )
 
-        wandb.log(log_data)
+        # wandb.log(log_data)
         if agent_config in [
             AgentConfig.NO_RANDOM,
             AgentConfig.RANDOM_HIDERS,
