@@ -87,7 +87,6 @@ class HideAndSeekEnv(ParallelEnv):
         # Prepare seekers
         seekers_x = grid_size - 1 if static_seekers else 0
         seekers_y = grid_size - 1 if static_seekers else 0
-        print(f"Seekers cords: {seekers_x}, {seekers_y}")
         self.seekers = [
             Agent(f"seeker_{index}", AgentType.SEEKER, seekers_x, seekers_y)
             for index in range(num_seekers)
@@ -96,7 +95,6 @@ class HideAndSeekEnv(ParallelEnv):
         # Prepare hiders
         hiders_x = grid_size - 1 if static_hiders else 0
         hiders_y = 0 if static_hiders else 0
-        print(f"Hiders cords: {hiders_x}, {hiders_y}")
         self.hiders = [
             Agent(f"hider_{index}", AgentType.HIDER, hiders_x, hiders_y)
             for index in range(num_hiders)
@@ -125,24 +123,12 @@ class HideAndSeekEnv(ParallelEnv):
                         raise ValueError("Wall must contain only 0 or 1")
 
             self.wall = wall
-        self.wallsCoords = self.get_walls_coordinates()
+        self.walls_coords = self.get_walls_coordinates()
 
         self.visibility_radius = visibility_radius  # How far can the seeker see
         self.total_game_time = total_time  # Total game time
         self.game_time = total_time
         self.hider_time_limit = hiding_time  # Hider has 30 seconds to hide
-
-        # Set observation space
-        self.observation_space = {
-            "seekers": {
-                agent.name: spaces.Box(0, self.grid_size - 1, shape=(2,), dtype=int)
-                for agent in self.seekers
-            },
-            "hiders": {
-                agent.name: spaces.Box(0, self.grid_size - 1, shape=(2,), dtype=int)
-                for agent in self.hiders
-            },
-        }
 
     def reset(self):
         """Reset the environment to a starting point.
@@ -161,7 +147,6 @@ class HideAndSeekEnv(ParallelEnv):
         seeker_x = self.grid_size - 1 if self.static_seekers else 0
         seeker_y = self.grid_size - 1 if self.static_seekers else 0
 
-        # Spawn the hider and seeker at opposite corners of the grid
         for seeker in self.seekers:
             seeker.reset(seeker_x, seeker_y)
 
@@ -171,13 +156,16 @@ class HideAndSeekEnv(ParallelEnv):
         for hider in self.hiders:
             hider.reset(hiders_x, hiders_y)
 
-        self.wallsCoords = []
+        observations = self.get_observations()
 
-        observations = {}
+        done = {
+            "seekers": {agent.name: 0 for agent in self.seekers},
+            "hiders": {agent.name: 0 for agent in self.hiders},
+        }
 
         self.game_time = self.total_game_time
 
-        return observations
+        return observations, done
 
     def step(self, hiders_actions, seekers_actions):
         """Takes in an action for the current agent specified by agent_selection.
@@ -302,11 +290,11 @@ class HideAndSeekEnv(ParallelEnv):
         # Calculate Euclidean distance
         distance = math.sqrt(dx**2 + dy**2)
         if distance == 0:
-            return True
+            return True, 0
 
         # Check if the hider is within the specified radial radius
         if distance > self.visibility_radius:
-            return False
+            return False, 0
 
         # Check for walls along the line of sight
         for t in range(int(distance) + 1):
@@ -314,17 +302,54 @@ class HideAndSeekEnv(ParallelEnv):
             y = round(seeker_y + t * (dy / distance))
 
             # Check if the cell contains a wall
-            if (x, y) in self.wallsCoords:
-                return False
+            if (x, y) in self.walls_coords:
+                return False, 0
 
         # If no walls are encountered, the hider is within visibility radius
-        return True
+        return True, distance
+
+    def print_grid(self, m):
+        print(m)
+        for i in range(self.grid_size):
+            for j in range(self.grid_size):
+                print(m[i * self.grid_size + j], end=" ")
+            print()
 
     def get_observation(self, agent: Agent, type: AgentType):
         """
         Return the observation for the agent
         """
-        return np.array([agent.x, agent.y], dtype=np.float32)
+        m = []
+        for y in range(self.grid_size):
+            for x in range(self.grid_size):
+                if any([wx == x and wy == y for wx, wy in self.walls_coords]):
+                    m.append(1)
+                    continue
+                if agent.x == x and agent.y == y:
+                    m.append(-1)
+                    continue
+                some_hider = False
+                for hider in self.hiders:
+                    if hider.x == x and hider.y == y:
+                        if type == AgentType.SEEKER:
+                            # visible, distance = self.check_visibility(
+                            #     agent.x, agent.y, hider.x, hider.y
+                            # )
+                            # if visible:
+                            m.append(2)
+                            some_hider = True
+                        else:
+                            if self.found[hider.name] is not None:
+                                m.append(3)
+                                some_hider = True
+                        break
+
+                if not some_hider:
+                    m.append(0)
+
+        # print(agent.name)
+        # self.print_grid(m)
+        return np.array(m, dtype=np.float32)
 
     def get_observations(self):
         """
@@ -334,13 +359,7 @@ class HideAndSeekEnv(ParallelEnv):
         for agent in self.seekers:
             observations[agent.name] = self.get_observation(agent, AgentType.SEEKER)
         for agent in self.hiders:
-            if any(
-                self.check_visibility(agent.x, agent.y, seeker.x, seeker.y)
-                for seeker in self.seekers
-            ):
-                observations[agent.name] = self.get_observation(agent, AgentType.HIDER)
-            else:
-                observations[agent.name] = np.array([-1, -1], dtype=np.float32)
+            observations[agent.name] = self.get_observation(agent, AgentType.HIDER)
 
         return observations
 

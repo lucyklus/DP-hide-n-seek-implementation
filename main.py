@@ -2,7 +2,7 @@ import datetime
 from environments import hidenseek
 import numpy as np
 import torch
-from agilerl.algorithms.matd3 import MATD3
+from agilerl.algorithms.maddpg import MADDPG
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from typing import List, Dict
 import os
@@ -70,11 +70,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
 
     # Seekers
     seekers_names = [agent.name for agent in env.seekers]
-    state_dim_seekers = [
-        # NN needs space dimensions (.shape), it can't work with discrete values, so we use MultiDiscrete
-        env.observation_space["seekers"][agent].shape
-        for agent in seekers_names
-    ]
+    state_dim_seekers = [(GRID_SIZE**2,) for _ in seekers_names]
     action_dim_seekers = [
         # we are calling .n because we have discrete action space
         env.action_space(agent).n
@@ -95,7 +91,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
         )
 
         # NN for seekers agents
-        seekers = MATD3(
+        seekers = MADDPG(
             state_dims=state_dim_seekers,
             action_dims=action_dim_seekers,
             n_agents=N_SEEKERS,
@@ -115,9 +111,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
 
     # Hiders
     hiders_names = [agent.name for agent in env.hiders]
-    state_dim_hiders = [
-        env.observation_space["hiders"][agent].shape for agent in hiders_names
-    ]
+    state_dim_hiders = [(GRID_SIZE**2,) for _ in hiders_names]
     action_dim_hiders = [env.action_space(agent).n for agent in hiders_names]
 
     if agent_config in [
@@ -132,7 +126,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             device=device,
         )
 
-        hiders = MATD3(
+        hiders = MADDPG(
             state_dims=state_dim_hiders,
             action_dims=action_dim_hiders,
             n_agents=N_HIDERS,
@@ -178,10 +172,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             ),
             [],
         )
-        env.reset()
-        done = False
-        # TODO: Divide this into two parts, one for seekers and one for hiders
-        observation = env.get_observations()
+        observation, done = env.reset()
         while env.agents:
             # Get hider actions
             if agent_config in [
@@ -193,7 +184,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
                     agent: observation[agent] for agent in hiders_names
                 }
                 hiders_cont_actions, hiders_discrete_action = hiders.getAction(
-                    hider_observation
+                    hider_observation, 0.3
                 )
             if agent_config == AgentConfig.STATIC_HIDERS:
                 hiders_discrete_action: Dict[str, int] = {
