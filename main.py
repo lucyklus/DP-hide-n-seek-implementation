@@ -26,39 +26,31 @@ class AgentConfig(Enum):
 
 
 def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
-    print(f"Agent config: {agent_config.name}")
     N_HIDERS = int(os.getenv("N_HIDERS"))
-    print("Hiders:")
-    print(N_HIDERS)
     N_SEEKERS = int(os.getenv("N_SEEKERS"))
-    print("Seekers:")
-    print(N_SEEKERS)
     GRID_SIZE = int(os.getenv("GRID_SIZE"))
     TOTAL_TIME = int(os.getenv("TOTAL_TIME"))
     HIDING_TIME = int(os.getenv("HIDING_TIME"))
     VISIBILITY = int(os.getenv("VISIBILITY"))
-    HIDDEN_SIZE = [100, 100, 50]
     EPISODES = int(os.getenv("EPISODES"))
-    print(EPISODES)
     EPISODE_PART_SIZE = int(os.getenv("EPISODE_PART_SIZE"))
     USE_CHECKPOINTS = bool(os.getenv("USE_CHECKPOINTS"))
     # start a new wandb run to track this script
-    wandb.init(
-        # set the wandb project where this run will be logged
-        project="marl-hide-n-seek",
-        # track hyperparameters and run metadata
-        config={
-            "n_hiders": N_HIDERS,
-            "n_seekers": N_SEEKERS,
-            "grid_size": GRID_SIZE,
-            "total_time": TOTAL_TIME,
-            "hiding_time": HIDING_TIME,
-            "visibility_radius": VISIBILITY,
-            "hidden_size": HIDDEN_SIZE,
-            "episodes": EPISODES,
-            "agent_config": agent_config.name,
-        },
-    )
+    # wandb.init(
+    #     # set the wandb project where this run will be logged
+    #     project="marl-hide-n-seek",
+    #     # track hyperparameters and run metadata
+    #     config={
+    #         "n_hiders": N_HIDERS,
+    #         "n_seekers": N_SEEKERS,
+    #         "grid_size": GRID_SIZE,
+    #         "total_time": TOTAL_TIME,
+    #         "hiding_time": HIDING_TIME,
+    #         "visibility_radius": VISIBILITY,
+    #         "episodes": EPISODES,
+    #         "agent_config": agent_config.name,
+    #     },
+    # )
     episodes_data: List[Episode] = []
 
     env = hidenseek.HideAndSeekEnv(
@@ -104,7 +96,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
         )
 
         # NN for seekers agents
-        seekers = MADDPG(  # MATD3(
+        seekers = MATD3(
             state_dims=state_dim_seekers,
             action_dims=action_dim_seekers,
             n_agents=N_SEEKERS,
@@ -141,7 +133,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             device=device,
         )
 
-        hiders = MADDPG(  # MATD3(
+        hiders = MATD3(  # MATD3(
             state_dims=state_dim_hiders,
             action_dims=action_dim_hiders,
             n_agents=N_HIDERS,
