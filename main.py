@@ -35,21 +35,21 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
     EPISODE_PART_SIZE = int(os.getenv("EPISODE_PART_SIZE"))
     USE_CHECKPOINTS = bool(os.getenv("USE_CHECKPOINTS"))
     # start a new wandb run to track this script
-    # wandb.init(
-    #     # set the wandb project where this run will be logged
-    #     project="marl-hide-n-seek",
-    #     # track hyperparameters and run metadata
-    #     config={
-    #         "n_hiders": N_HIDERS,
-    #         "n_seekers": N_SEEKERS,
-    #         "grid_size": GRID_SIZE,
-    #         "total_time": TOTAL_TIME,
-    #         "hiding_time": HIDING_TIME,
-    #         "visibility_radius": VISIBILITY,
-    #         "episodes": EPISODES,
-    #         "agent_config": agent_config.name,
-    #     },
-    # )
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="marl-hide-n-seek",
+        # track hyperparameters and run metadata
+        config={
+            "n_hiders": N_HIDERS,
+            "n_seekers": N_SEEKERS,
+            "grid_size": GRID_SIZE,
+            "total_time": TOTAL_TIME,
+            "hiding_time": HIDING_TIME,
+            "visibility_radius": VISIBILITY,
+            "episodes": EPISODES,
+            "agent_config": agent_config.name,
+        },
+    )
     episodes_data: List[Episode] = []
 
     env = hidenseek.HideAndSeekEnv(
@@ -70,7 +70,9 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
 
     # Seekers
     seekers_names = [agent.name for agent in env.seekers]
-    state_dim_seekers = [(GRID_SIZE**2,) for _ in seekers_names]
+    state_dim_seekers = [
+        (GRID_SIZE**2 + 2,) for _ in seekers_names
+    ]  # +2 for the agent's position
     action_dim_seekers = [
         # we are calling .n because we have discrete action space
         env.action_space(agent).n
@@ -111,7 +113,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
 
     # Hiders
     hiders_names = [agent.name for agent in env.hiders]
-    state_dim_hiders = [(GRID_SIZE**2,) for _ in hiders_names]
+    state_dim_hiders = [(GRID_SIZE**2 + 2,) for _ in hiders_names]
     action_dim_hiders = [env.action_space(agent).n for agent in hiders_names]
 
     if agent_config in [
@@ -216,7 +218,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
                     agent: observation[agent] for agent in seekers_names
                 }
                 seekers_cont_actions, seekers_discrete_action = seekers.getAction(
-                    seeker_observation
+                    seeker_observation, 0.3
                 )
             if agent_config == AgentConfig.STATIC_SEEKERS:
                 seekers_discrete_action: Dict[str, int] = {
@@ -237,8 +239,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
                 }
                 for agent in seekers_names:
                     seekers_cont_actions[agent][seekers_discrete_action[agent]] = 1
-
-            new_obs, rewards, terminated, done, won, found = env.step(
+            new_obs, rewards, done, won, found = env.step(
                 hiders_discrete_action, seekers_discrete_action
             )
 
@@ -251,10 +252,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
                 buffer_hiders.save2memory(
                     observation,
                     hiders_cont_actions,
-                    {
-                        hider: rewards.hiders[hider].total_reward
-                        for hider in rewards.hiders
-                    },
+                    rewards["hiders"],
                     new_obs,
                     done["hiders"],
                 )
@@ -266,10 +264,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
                 buffer_seekers.save2memory(
                     observation,
                     seekers_cont_actions,
-                    {
-                        seeker: rewards.seekers[seeker].total_reward
-                        for seeker in rewards.seekers
-                    },
+                    rewards["seekers"],
                     new_obs,
                     done["seekers"],
                 )
@@ -313,7 +308,6 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
                             for agent_name in hiders_discrete_action
                         },
                     },
-                    terminations=terminated,
                     done=done,
                     won=won,
                     found=found,
@@ -321,12 +315,19 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             )
 
             observation = new_obs
-            ep.rewards = rewards
+            # End of frame => Add cumulative rewards
+            ep.rewards.hiders_total_reward += rewards["hiders_total_reward"]
+            ep.rewards.seekers_total_reward += rewards["seekers_total_reward"]
+
+        # End of episode => Add total rewards and penalties
+        ep.rewards.add(env.calculate_total_rewards())
 
         log_data = {}
 
         for hider in ep.rewards.hiders:
-            log_data[f"hider_{hider}_reward"] = ep.rewards.hiders[hider].total_reward
+            log_data[f"hider_{hider}_reward"] = ep.rewards.hiders[
+                hider
+            ].get_total_reward()
             log_data[f"hider_{hider}_penalty"] = ep.rewards.hiders[
                 hider
             ].discovery_penalty
@@ -334,7 +335,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
         for seeker in ep.rewards.seekers:
             log_data[f"seeker_{seeker}_reward"] = ep.rewards.seekers[
                 seeker
-            ].total_reward
+            ].get_total_reward()
             log_data[f"seeker_{seeker}_penalty"] = ep.rewards.seekers[
                 seeker
             ].discovery_penalty
@@ -352,7 +353,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
             [ep.rewards.hiders[hider].discovery_penalty for hider in ep.rewards.hiders]
         )
 
-        # wandb.log(log_data)
+        wandb.log(log_data)
         if agent_config in [
             AgentConfig.NO_RANDOM,
             AgentConfig.RANDOM_HIDERS,
@@ -411,7 +412,7 @@ if __name__ == "__main__":
                     )
                 )
             )
-            walls = int(input("Wall configuration (1-4): ")) - 1
+            walls = int(input("Wall configuration (1-5): ")) - 1
             episodes_data = train_data(
                 settings,
                 wall_configs[walls],

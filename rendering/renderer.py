@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Self
 from dataclasses import dataclass
 import pygame
 import numpy as np
@@ -10,7 +10,20 @@ class HiderRewards:
     next_to_wall_reward: float  # HIDER_NEXT_TO_WALL_REWARD
     hidden_reward: float  # HIDER_HIDDEN_REWARD * hidden
     discovery_penalty: float  # HIDER_DISCOVERY_PENALTY
-    total_reward: float
+
+    def add(self, rew: Self):
+        self.time_reward += rew.time_reward
+        self.next_to_wall_reward += rew.next_to_wall_reward
+        self.hidden_reward += rew.hidden_reward
+        self.discovery_penalty += rew.discovery_penalty
+
+    def get_total_reward(self):
+        return (
+            self.time_reward
+            + self.next_to_wall_reward
+            + self.hidden_reward
+            - self.discovery_penalty
+        )
 
 
 @dataclass
@@ -18,7 +31,14 @@ class SeekerRewards:
     time_reward: float  # SEEKER_TIME_REWARD * self.game_time
     discovery_reward: float  # SEEKER_DISCOVERY_REWARD
     discovery_penalty: float  # SEEKER_DISCOVERY_PENALTY * hidden
-    total_reward: float
+
+    def add(self, rew: Self):
+        self.time_reward += rew.time_reward
+        self.discovery_reward += rew.discovery_reward
+        self.discovery_penalty += rew.discovery_penalty
+
+    def get_total_reward(self):
+        return self.time_reward + self.discovery_reward - self.discovery_penalty
 
 
 @dataclass
@@ -28,12 +48,25 @@ class Rewards:
     seekers: Dict[str, SeekerRewards]
     seekers_total_reward: float
 
+    def add(self, rew: Self):
+        self.hiders_total_reward += rew.hiders_total_reward
+        self.seekers_total_reward += rew.seekers_total_reward
+        for hider in rew.hiders:
+            if hider not in self.hiders:
+                self.hiders[hider] = rew.hiders[hider]
+            else:
+                self.hiders[hider].add(rew.hiders[hider])
+        for seeker in rew.seekers:
+            if seeker not in self.seekers:
+                self.seekers[seeker] = rew.seekers[seeker]
+            else:
+                self.seekers[seeker].add(rew.seekers[seeker])
+
 
 @dataclass
 class Frame:
     state: List[List[Dict[str, str]]]
     actions: Dict[str, Dict[str, int]]
-    terminations: Dict[str, bool]
     done: Dict[str, Dict[str, int]]
     won: Dict[str, bool]
     found: Dict[str, str]
@@ -314,7 +347,7 @@ class GameRenderer:
 
             if ep.frames[-1].won["seekers"]:
                 text = self.font.render(
-                    f"Seekers won with total rewards: {ep.rewards.seekers_total_reward}",
+                    f"Seekers won: {round(ep.rewards.seekers_total_reward,2)} vs Hiders: {round(ep.rewards.hiders_total_reward,2)}",
                     True,
                     (0, 0, 0),
                 )
@@ -322,9 +355,10 @@ class GameRenderer:
                 self.screen.blit(
                     text, text.get_rect(center=self.screen.get_rect().center)
                 )
+
             else:
                 text = self.font.render(
-                    f"Hiders won with total rewards: {ep.rewards.hiders_total_reward}",
+                    f"Hiders won: {round(ep.rewards.hiders_total_reward,2)} vs Seekeers: {round(ep.rewards.seekers_total_reward,2)}",
                     True,
                     (0, 0, 0),
                 )
@@ -332,6 +366,7 @@ class GameRenderer:
                 self.screen.blit(
                     text, text.get_rect(center=self.screen.get_rect().center)
                 )
+
             pygame.time.wait(500)
 
             pygame.display.flip()
