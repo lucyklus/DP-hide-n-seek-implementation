@@ -295,11 +295,11 @@ class HideAndSeekEnv(ParallelEnv):
         # Calculate Euclidean distance
         distance = self._distance(seeker_x, seeker_y, hider_x, hider_y)
         if distance == 0:
-            return True, 0
+            return True
 
         # Check if the hider is within the specified radial radius
         if distance > self.visibility_radius:
-            return False, 0
+            return False
 
         dx = hider_x - seeker_x
         dy = hider_y - seeker_y
@@ -310,10 +310,10 @@ class HideAndSeekEnv(ParallelEnv):
 
             # Check if the cell contains a wall
             if (x, y) in self.walls_coords:
-                return False, 0
+                return False
 
         # If no walls are encountered, the hider is within visibility radius
-        return True, distance
+        return True
 
     def print_grid(self, m):
         print(m[0], ":", m[1])
@@ -334,7 +334,10 @@ class HideAndSeekEnv(ParallelEnv):
                     continue
                 hider = list(filter(lambda h: h.x == x and h.y == y, self.hiders))
                 if type == AgentType.SEEKER and len(hider) > 0:
-                    m.append(2)
+                    if self.check_visibility(agent.x, agent.y, x, y):
+                        m.append(2)
+                    else:
+                        m.append(0)
                     continue
                 m.append(0)
 

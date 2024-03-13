@@ -67,6 +67,11 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     field_names = ["state", "action", "reward", "next_state", "done"]
+    # Exploration params
+    eps_start = 1.0  # Max exploration
+    eps_end = 0.1  # Min exploration
+    eps_decay = 0.995  # Decay per episode
+    epsilon = eps_start
 
     # Seekers
     seekers_names = [agent.name for agent in env.seekers]
@@ -186,7 +191,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
                     agent: observation[agent] for agent in hiders_names
                 }
                 hiders_cont_actions, hiders_discrete_action = hiders.getAction(
-                    hider_observation, 0.3
+                    hider_observation, epsilon
                 )
             if agent_config == AgentConfig.STATIC_HIDERS:
                 hiders_discrete_action: Dict[str, int] = {
@@ -218,7 +223,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
                     agent: observation[agent] for agent in seekers_names
                 }
                 seekers_cont_actions, seekers_discrete_action = seekers.getAction(
-                    seeker_observation, 0.3
+                    seeker_observation, epsilon
                 )
             if agent_config == AgentConfig.STATIC_SEEKERS:
                 seekers_discrete_action: Dict[str, int] = {
@@ -370,6 +375,7 @@ def train_data(agent_config: AgentConfig, walls=wall_configs[0]):
 
         episodes_data.append(ep)
         episode_n += 1
+        epsilon = max(eps_end, epsilon * eps_decay)  # Update epsilon for exploration
 
     file_n += 1
     save_file = open(f"./results/{training_date}/part{file_n}.json", "w")
