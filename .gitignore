@@ -63,10 +63,18 @@ __pypackages__/
 *.sage.py
 
 # Environments
-.env
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+.DS_Store
+
+checkpoints/*
+!checkpoints/.gitkeep
+
+results/*
+!results/.gitkeep
+
+wandb
