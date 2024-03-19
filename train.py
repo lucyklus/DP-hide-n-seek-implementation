@@ -24,7 +24,6 @@ class AgentConfig(Enum):
 
 
 def save_episode_part(training_date: str, file_n: int, episodes_data: List[Episode]):
-    file_n += 1
     save_file = open(f"./results/{training_date}/part{file_n}.json", "w")
     json.dump(episodes_data, save_file, indent=2, default=lambda obj: obj.__dict__)
     save_file.close()
@@ -381,6 +380,7 @@ def train_data(
     # Episodes
     for episode in range(config.EPISODES):
         if episode_n == config.EPISODE_PART_SIZE:
+            file_n += 1
             save_episode_part(training_date, file_n, episodes_data)
             episodes_data: List[Episode] = []
             episode_n = 0
