@@ -1,5 +1,4 @@
 import datetime
-from environments import hidenseek
 import numpy as np
 import torch
 from agilerl.algorithms.maddpg import MADDPG
@@ -8,10 +7,10 @@ from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from typing import List, Dict
 import os
 import json
-import wandb
 from enum import Enum
 from utils.config import Config
 from rendering.renderer import Episode, Frame, Rewards
+from environments import hidenseek
 
 
 class AgentConfig(Enum):
@@ -225,7 +224,7 @@ def run_episode(
         [ep.rewards.hiders[hider].discovery_penalty for hider in ep.rewards.hiders]
     )
 
-    wandb.log(log_data)
+    # wandb.log(log_data)
     if agent_config in [
         AgentConfig.NO_RANDOM,
         AgentConfig.RANDOM_HIDERS,
@@ -246,21 +245,21 @@ def train_data(
     agent_config: AgentConfig, config: Config, walls: List[List[int]]
 ) -> List[Episode]:
     # start a new wandb run to track this script
-    wandb.init(
-        # set the wandb project where this run will be logged
-        project="marl-hide-n-seek",
-        # track hyperparameters and run metadata
-        config={
-            "n_hiders": config.N_HIDERS,
-            "n_seekers": config.N_SEEKERS,
-            "grid_size": config.GRID_SIZE,
-            "total_time": config.TOTAL_TIME,
-            "hiding_time": config.HIDING_TIME,
-            "visibility_radius": config.VISIBILITY,
-            "episodes": config.EPISODES,
-            "agent_config": agent_config.name,
-        },
-    )
+    # wandb.init(
+    #     # set the wandb project where this run will be logged
+    #     project="marl-hide-n-seek",
+    #     # track hyperparameters and run metadata
+    #     config={
+    #         "n_hiders": config.N_HIDERS,
+    #         "n_seekers": config.N_SEEKERS,
+    #         "grid_size": config.GRID_SIZE,
+    #         "total_time": config.TOTAL_TIME,
+    #         "hiding_time": config.HIDING_TIME,
+    #         "visibility_radius": config.VISIBILITY,
+    #         "episodes": config.EPISODES,
+    #         "agent_config": agent_config.name,
+    #     },
+    # )
     episodes_data: List[Episode] = []
 
     env = hidenseek.HideAndSeekEnv(
@@ -320,12 +319,6 @@ def train_data(
             max_action=None,
             device=device,
         )
-        if config.USE_CHECKPOINTS:
-            try:
-                seekers.loadCheckpoint("./checkpoints/seekers.chkp")
-                print("Seekers checkpoint loaded")
-            except:
-                print("No seekers checkpoint found")
     else:
         buffer_seekers = None
         seekers = None
@@ -358,12 +351,6 @@ def train_data(
             max_action=None,
             device=device,
         )
-        if config.USE_CHECKPOINTS:
-            try:
-                hiders.loadCheckpoint("./checkpoints/hiders.chkp")
-                print("Hiders checkpoint loaded")
-            except:
-                print("No hiders checkpoint found")
     else:
         buffer_hiders = None
         hiders = None
@@ -408,15 +395,6 @@ def train_data(
     save_file.close()
     episodes_data: List[Episode] = []
     episode_n = 0
-    # if os.path.exists("./checkpoints") == False:
-    #     os.mkdir("./checkpoints")
-
-    # if not random_seekers:
-    #     seekers.saveCheckpoint(
-    #         "./checkpoints/seekers.chkp"
-    #     )  # TODO: dont overwrite, save versions with timestamp
-    # if not random_hiders:
-    #     hiders.saveCheckpoint("./checkpoints/hiders.chkp")
 
     env.close()
     return episodes_data
