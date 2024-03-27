@@ -4,7 +4,6 @@ import math
 
 import numpy as np
 from gymnasium import spaces
-from enum import Enum
 from typing import List, Dict
 from pettingzoo import ParallelEnv
 
@@ -468,13 +467,6 @@ class HideAndSeekEnv(ParallelEnv):
 
     def _game_over(self):
         self.agents = []
-
-    def _print_grid(self, m):
-        print(m[0], ":", m[1])
-        for i in range(self.grid_size):
-            for j in range(self.grid_size):
-                print(m[i * self.grid_size + j + 2], end=" ")
-            print()
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent_name: str):

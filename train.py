@@ -7,6 +7,7 @@ from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
 from typing import List, Dict
 import os
 import json
+import wandb
 from enum import Enum
 from utils.config import Config
 from rendering.renderer import Episode, Frame, Rewards
@@ -224,7 +225,7 @@ def run_episode(
         [ep.rewards.hiders[hider].discovery_penalty for hider in ep.rewards.hiders]
     )
 
-    # wandb.log(log_data)
+    wandb.log(log_data)
     if agent_config in [
         AgentConfig.NO_RANDOM,
         AgentConfig.RANDOM_HIDERS,
@@ -245,21 +246,21 @@ def train_data(
     agent_config: AgentConfig, config: Config, walls: List[List[int]]
 ) -> List[Episode]:
     # start a new wandb run to track this script
-    # wandb.init(
-    #     # set the wandb project where this run will be logged
-    #     project="marl-hide-n-seek",
-    #     # track hyperparameters and run metadata
-    #     config={
-    #         "n_hiders": config.N_HIDERS,
-    #         "n_seekers": config.N_SEEKERS,
-    #         "grid_size": config.GRID_SIZE,
-    #         "total_time": config.TOTAL_TIME,
-    #         "hiding_time": config.HIDING_TIME,
-    #         "visibility_radius": config.VISIBILITY,
-    #         "episodes": config.EPISODES,
-    #         "agent_config": agent_config.name,
-    #     },
-    # )
+    wandb.init(
+        # set the wandb project where this run will be logged
+        project="marl-hide-n-seek",
+        # track hyperparameters and run metadata
+        config={
+            "n_hiders": config.N_HIDERS,
+            "n_seekers": config.N_SEEKERS,
+            "grid_size": config.GRID_SIZE,
+            "total_time": config.TOTAL_TIME,
+            "hiding_time": config.HIDING_TIME,
+            "visibility_radius": config.VISIBILITY,
+            "episodes": config.EPISODES,
+            "agent_config": agent_config.name,
+        },
+    )
     episodes_data: List[Episode] = []
 
     env = hidenseek.HideAndSeekEnv(

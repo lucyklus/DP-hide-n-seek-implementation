@@ -1,7 +1,6 @@
 from typing import List, Dict, Self
 from dataclasses import dataclass
 import pygame
-import numpy as np
 
 
 @dataclass
