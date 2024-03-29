@@ -4,7 +4,8 @@ import json
 
 # Importing custom classes and functions from local modules
 from utils.config import Config
-from rendering.renderer import GameRenderer, Episode, Frame, Rewards
+from rendering.renderer import GameRenderer
+from environments.models import Episode, Frame, Rewards
 from train import AgentConfig, train_data
 
 

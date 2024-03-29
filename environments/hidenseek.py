@@ -7,8 +7,14 @@ from gymnasium import spaces
 from typing import List, Dict
 from pettingzoo import ParallelEnv
 
-from rendering.renderer import Rewards, HiderRewards, SeekerRewards
-from environments.models import Agent, AgentType, Movement
+from environments.models import (
+    Agent,
+    AgentType,
+    Movement,
+    Rewards,
+    HiderRewards,
+    SeekerRewards,
+)
 
 DISTANCE_COEFFICIENT = 0.1
 
