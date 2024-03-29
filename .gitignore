@@ -71,9 +71,6 @@ env.bak/
 venv.bak/
 .DS_Store
 
-checkpoints/*
-!checkpoints/.gitkeep
-
 results/*
 !results/.gitkeep
 
