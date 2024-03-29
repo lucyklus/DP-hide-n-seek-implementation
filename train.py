@@ -10,12 +10,16 @@ import json
 import wandb  # Import the Weights & Biases library for experiment tracking
 from enum import Enum
 from utils.config import Config
-from rendering.renderer import Episode, Frame, Rewards
+from environments.models import Episode, Frame, Rewards
 from environments import hidenseek
 
 
-# Enumeration for different agent configurations in training
 class AgentConfig(Enum):
+    """
+    Defines the behavior modes for agents within the training environment, allowing
+    for configuration of static, random, or learning-based agent actions.
+    """
+
     NO_RANDOM = 1
     RANDOM_SEEKERS = 2
     RANDOM_HIDERS = 3
@@ -24,34 +28,46 @@ class AgentConfig(Enum):
     STATIC_HIDERS = 6
 
 
-# Function to save episode data into a JSON file
 def save_episode_part(training_date: str, file_n: int, episodes_data: List[Episode]):
+    """
+    Saves a part of the episode data to a JSON file for later analysis or replay.
+
+    Parameters:
+    - training_date (str): The date of the training session, used for organizing saved data.
+    - file_n (int): The file number, used for splitting data into manageable parts.
+    - episodes_data (List[Episode]): The episode data to be saved.
+    """
     save_file = open(f"./results/{training_date}/part{file_n}.json", "w")
     json.dump(episodes_data, save_file, indent=2, default=lambda obj: obj.__dict__)
     save_file.close()
 
 
-# Function to process and run a single frame of an episode
 def run_frame(
-    observation: Dict[str, np.ndarray],  # Current observations for all agents
-    agent_config: AgentConfig,  # Configuration specifying agent behavior
-    env: hidenseek.HideAndSeekEnv,  # The game environment
-    ep: Episode,  # The current episode object being processed
-    hiders: MADDPG | MATD3 | None,  # Hiders' learning algorithm instance, if any
-    seekers: MADDPG | MATD3 | None,  # Seekers' learning algorithm instance, if any
-    buffer_hiders: (
-        MultiAgentReplayBuffer | None
-    ),  # Replay buffer for hiders, for experience replay
-    buffer_seekers: (
-        MultiAgentReplayBuffer | None
-    ),  # Replay buffer for seekers, for experience replay
-    epsilon: float,  # Epsilon value for epsilon-greedy strategy in action selection
-    action_dim_hiders: List[int],  # Dimensions of the action spaces for hiders
-    action_dim_seekers: List[int],  # Dimensions of the action spaces for seekers
-    hiders_names: List[str],  # Names (identifiers) of hider agents
-    seekers_names: List[str],  # Names (identifiers) of seeker agents
+    observation: Dict[str, np.ndarray],
+    agent_config: AgentConfig,
+    env: hidenseek.HideAndSeekEnv,
+    ep: Episode,
+    hiders: MADDPG | MATD3 | None,
+    seekers: MADDPG | MATD3 | None,
+    buffer_hiders: MultiAgentReplayBuffer | None,
+    buffer_seekers: MultiAgentReplayBuffer | None,
+    epsilon: float,
+    action_dim_hiders: List[int],
+    action_dim_seekers: List[int],
+    hiders_names: List[str],
+    seekers_names: List[str],
 ) -> Dict[str, np.ndarray]:  # Returns the new observation after executing actions
-    # Determine actions for hiders based on the agent configuration
+    """
+    Processes a single frame (step) in an episode, handling agent actions, state transitions,
+    and learning updates.
+
+    Parameters describe the current state of the environment, agent configurations, the
+    learning algorithms for both hiders and seekers, their action spaces, names, and the
+    epsilon value for exploration. The function calculates the next state and updates
+    the episode object with the results.
+
+    Returns the new observation state after all actions are executed.
+    """
     if hiders is not None:
         # If hiders have a learning algorithm, use it to get actions based on observations
         hider_observation = {agent: observation[agent] for agent in hiders_names}
@@ -174,29 +190,30 @@ def run_frame(
     return new_obs
 
 
-# Function to run a complete episode based on the environment and agent configurations
 def run_episode(
-    env: hidenseek.HideAndSeekEnv,  # Environment: The game environment for the Hide and Seek game
-    episode: int,  # Episode: The current episode number
-    agent_config: AgentConfig,  # AgentConfig: Configuration enum specifying the behavior of agents (static, random movement, etc.)
-    hiders_names: List[str],  # Names of hider agents in the environment
-    seekers_names: List[str],  # Names of seeker agents in the environment
-    hiders: (
-        MADDPG | MATD3 | None
-    ),  # Hiders: The learning algorithm controlling the hider agents (can be MADDPG, MATD3, or None)
-    seekers: (
-        MADDPG | MATD3 | None
-    ),  # Seekers: The learning algorithm controlling the seeker agents
-    buffer_hiders: (
-        MultiAgentReplayBuffer | None
-    ),  # Buffer for hiders: Stores experiences for hiders to learn from
-    buffer_seekers: (
-        MultiAgentReplayBuffer | None
-    ),  # Buffer for seekers: Stores experiences for seekers to learn from
-    epsilon: float,  # Epsilon: Used for epsilon-greedy policy to balance exploration and exploitation
-    action_dim_hiders: List[int],  # Dimensions of actions available to hider agents
-    action_dim_seekers: List[int],  # Dimensions of actions available to seeker agents
+    env: hidenseek.HideAndSeekEnv,
+    episode: int,
+    agent_config: AgentConfig,
+    hiders_names: List[str],
+    seekers_names: List[str],
+    hiders: MADDPG | MATD3 | None,
+    seekers: MADDPG | MATD3 | None,
+    buffer_hiders: MultiAgentReplayBuffer | None,
+    buffer_seekers: MultiAgentReplayBuffer | None,
+    epsilon: float,
+    action_dim_hiders: List[int],
+    action_dim_seekers: List[int],
 ) -> Episode:
+    """
+    Executes one full episode of training or evaluation, given the environment and
+    configuration for agents. Manages the episode lifecycle from start to finish.
+
+    Collects data for each frame within the episode, handles learning updates for
+    agents, and logs episode outcomes.
+
+    Returns the Episode object filled with the episode's data for further analysis or review.
+    """
+
     # Initialize the episode data structure.
     ep: Episode = Episode(
         episode,
@@ -274,10 +291,25 @@ def run_episode(
     return ep
 
 
-# Main function to train the agents and gather the data
 def train_data(
     agent_config: AgentConfig, config: Config, walls: List[List[int]]
 ) -> List[Episode]:
+    """
+    Initiates the training process for the hide-and-seek game given a configuration,
+    environment settings, and wall structures. Organizes training data collection,
+    model updates, and logging.
+
+    Uses Weights & Biases for experiment tracking, and handles the setup and teardown
+    of training infrastructure.
+
+    Parameters:
+    - agent_config: Specifies the behavior and roles of agents in the training.
+    - config: Training and environment configuration.
+    - walls: Specifies the layout of walls within the environment.
+
+    Returns a list of Episode objects containing the data from each training episode.
+    """
+
     # Start a new Weights & Biases run for tracking and visualizing the training process
     wandb.init(
         project="marl-hide-n-seek",
