@@ -173,11 +173,20 @@ class Wall:
 
 class GameRenderer:
     """
-    Renders all episodes from episodes_data using pygame
+    A class responsible for rendering the game environment and its entities (hiders, seekers, walls)
+    on the screen using Pygame. It visualizes episodes, showing the movements and interactions
+    between hiders and seekers.
 
+    Attributes:
+        episodes_data (List[Episode]): Data for all episodes to be rendered.
+        grid_size (int): The size of the game grid.
+        total_time (int): The total time allowed for each episode.
+        hiding_time (int): The time allocated for hiders to hide before seekers start seeking.
+        visibility (int): The visibility radius for seekers.
+        n_seekers (int): The number of seekers in the game.
+        n_hiders (int): The number of hiders in the game.
     """
 
-    # pygame setup
     def __init__(
         self,
         episodes_data: List[Episode],
@@ -188,6 +197,12 @@ class GameRenderer:
         n_seekers: int,
         n_hiders: int,
     ):
+        """
+        Initializes the GameRenderer with the necessary configuration and loads the visual assets.
+
+        The initialization process sets up the Pygame window, loads images for the entities, and prepares
+        the game for rendering episodes.
+        """
         self.episodes_data: List[Episode] = episodes_data
         self.grid_size = grid_size
         self.total_time = total_time
@@ -225,15 +240,20 @@ class GameRenderer:
         self.visibility_group: Dict[str, Visibility] = {}
         self.walls_group: Dict[str, Wall] = {}
 
-        pygame.init()
-        self.font = pygame.font.SysFont("Arial", 25)
+        pygame.init()  # Initialize the Pygame library
+        self.font = pygame.font.SysFont("Arial", 25)  # Font for drawing text
         pygame.display.set_caption("Episode 0")
+        # Create a window of appropriate size
         self.screen = pygame.display.set_mode(
             (self.grid_size * CELL_SIZE, self.grid_size * CELL_SIZE)
         )
-        self.clock = pygame.time.Clock()
+        self.clock = pygame.time.Clock()  # Clock to control frame rate
 
     def create_groups(self):
+        """
+        Initializes and organizes hiders, seekers, visibility zones, and walls into groups
+        for more efficient rendering and updates during the game.
+        """
         for i in range(self.n_hiders):
             hider = Hider(name=f"hider_{i}", images=self.hider_images)
             self.hiders_group[f"hider_{i}"] = hider
@@ -251,6 +271,14 @@ class GameRenderer:
         frame: Frame,
         frame_i: int,
     ):
+        """
+        Sets the positions of all entities (hiders, seekers, walls) for a specific frame
+        based on the game state at that moment.
+
+        Parameters:
+            frame (Frame): The current frame to be rendered.
+            frame_i (int): The index of the frame within the episode.
+        """
         for x, col in enumerate(frame.state):
             for y, cell in enumerate(col):
                 if cell == None:
@@ -285,6 +313,14 @@ class GameRenderer:
                                 self.hiders_group[entity["name"]].set_pos(x, y, 4)
 
     def render_frame(self, frame_index):
+        """
+        Renders a single frame of the episode, drawing all entities (hiders, seekers, walls)
+        on the screen based on their positions and states.
+
+        Parameters:
+            frame_index (int): The index of the frame to render, used to determine
+            the game state such as hiding or seeking phase.
+        """
         if frame_index < self.hiding_time:
             self.screen.fill("white")
         else:
@@ -303,18 +339,27 @@ class GameRenderer:
             seeker.draw(self.screen, self.font)
 
     def render(self):
-        running = True
-
-        self.create_groups()
+        """
+        The main rendering loop that goes through each episode and each frame, calling 
+        render_frame for each moment of the game. Handles user input for pausing and 
+        quitting the game, and displays the outcome of each episode.
+        """
+        running = True  # Flag to keep the loop running
+        self.create_groups()  # Prepare the groups for rendering
 
         for ep in self.episodes_data:
-            pygame.display.set_caption(f"Episode {ep.number}")
+            pygame.display.set_caption(f"Episode {ep.number}")  # Window title
             for frame_i, frame in enumerate(ep.frames):
-                paused = False
+                paused = False  # Flag for pausing the game
+                # Event handling loop
                 for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        running = False
-                    if event.type == pygame.KEYDOWN:
+                    if event.type == pygame.QUIT:  # If window close button clicked
+                        running = False  # Exit the main loop
+                        pygame.quit()  # Shut down Pygame
+                        return
+                    if (
+                        event.type == pygame.KEYDOWN
+                    ):  # Additional event handling for pausing
                         if event.key == pygame.K_SPACE:
                             paused = True
 
@@ -322,28 +367,28 @@ class GameRenderer:
                     for event in pygame.event.get():
                         if event.type == pygame.QUIT:
                             running = False
-                            paused = False
+                            pygame.quit()
+                            return
                         if event.type == pygame.KEYDOWN:
                             if event.key == pygame.K_SPACE:
                                 paused = False
                                 break
                     self.clock.tick(FRAMERATE)
-                if running == False:
+                if not running:
                     break
 
                 self.set_positions(
                     frame,
                     frame_i,
-                )
+                )  # Update positions for rendering
+                self.render_frame(frame_i)  # Render the current frame
+                pygame.display.flip()  # Update the full display
+                self.clock.tick(FRAMERATE)  # Maintain the frame rate
 
-                self.render_frame(frame_i)
-
-                pygame.display.flip()
-                self.clock.tick(FRAMERATE)
-
-            if running == False:
+            if not running:  # Exit the loop if the running flag is False
                 break
 
+            # Display win/loss message at the end of each episode
             if ep.frames[-1].won["seekers"]:
                 text = self.font.render(
                     f"Seekers won: {round(ep.rewards.seekers_total_reward,2)} vs Hiders: {round(ep.rewards.hiders_total_reward,2)}",
@@ -371,5 +416,5 @@ class GameRenderer:
             pygame.display.flip()
             pygame.time.wait(500)
 
-        running = False
-        pygame.quit()
+        running = False  # Ensure the running flag is set to False after the loop
+        pygame.quit()  # Deinitialize Pygame modules
