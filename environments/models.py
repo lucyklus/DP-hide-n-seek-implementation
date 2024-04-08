@@ -12,19 +12,6 @@ class AgentType(Enum):
     HIDER = 0
     SEEKER = 1
 
-
-class Movement(Enum):
-    """
-    Enumerates the possible movements for agents: left, right, up, down, or stay (no movement).
-    """
-
-    LEFT = 0
-    RIGHT = 1
-    UP = 2
-    DOWN = 3
-    STAY = 4
-
-
 class Agent:
     """
     Represents an agent in the game, which can be either a Hider or a Seeker.
@@ -58,6 +45,20 @@ class Agent:
         self.y = y
 
 
+
+class Movement(Enum):
+    """
+    Enumerates the possible movements for agents: left, right, up, down, or stay (no movement).
+    """
+
+    LEFT = 0
+    RIGHT = 1
+    UP = 2
+    DOWN = 3
+    STAY = 4
+
+
+
 @dataclass
 class HiderRewards:
     """
@@ -86,7 +87,7 @@ class HiderRewards:
             self.time_reward
             + self.next_to_wall_reward
             + self.hidden_reward
-            - self.discovery_penalty
+            + self.discovery_penalty
         )
 
 
@@ -113,7 +114,7 @@ class SeekerRewards:
         """
         Calculates the total reward for a seeker by summing all rewards and subtracting penalties.
         """
-        return self.time_reward + self.discovery_reward - self.discovery_penalty
+        return self.time_reward + self.discovery_reward + self.discovery_penalty
 
 
 @dataclass
