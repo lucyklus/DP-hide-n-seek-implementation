@@ -377,7 +377,7 @@ def train_data(
         )
 
         # NN for seekers agents
-        seekers = MADDPG(
+        seekers = MADDPG( # Rewrite to MATD3 if needed
             state_dims=state_dim_seekers,
             action_dims=action_dim_seekers,
             n_agents=config.N_SEEKERS,
@@ -409,7 +409,7 @@ def train_data(
             device=device,
         )
 
-        hiders = MADDPG(
+        hiders = MADDPG( # Rewrite to MATD3 if needed
             state_dims=state_dim_hiders,
             action_dims=action_dim_hiders,
             n_agents=config.N_HIDERS,
