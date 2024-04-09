@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 from gymnasium import spaces
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from pettingzoo import ParallelEnv
 
 from environments.models import (
@@ -163,6 +163,20 @@ class HideAndSeekEnv(ParallelEnv):
         # Return the initial observations so agents can decide their first move.
         return observations
 
+    def get_positions(self) -> Dict[str, Tuple[int, int]]:
+        """
+        Retrieves the current positions of all agents in the environment.
+
+        Returns:
+        - positions: A dictionary mapping agent names to their current x, y coordinates.
+        """
+        positions = {}
+        for agent in self.seekers + self.hiders:
+            positions[agent.name] = (agent.x, agent.y)
+        return positions
+        
+        
+    
     def step(self, hiders_actions, seekers_actions):
         """
         Advances the environment by one timestep. Updates agent states and computes new observations and rewards.
@@ -197,7 +211,7 @@ class HideAndSeekEnv(ParallelEnv):
         observations = self._get_observations()
 
         # If hiders' hiding time is up, check if seekers have found any hiders
-        if self._hider_time_limit_exceeded() and not self._seeker_time_limit_exceeded():
+        if self._hider_time_limit_exceeded():
             for seeker in self.seekers:
                 for hider in self.hiders:
                     if self._check_found(seeker.x, seeker.y, hider.x, hider.y):
@@ -324,40 +338,6 @@ class HideAndSeekEnv(ParallelEnv):
             rewards.seekers_total_penalty += rewards.seekers[s.name].discovery_penalty
 
         return rewards
-
-    def render(self):
-        """
-        Generates a grid representation of the current game state, including the positions
-        of hiders, seekers, and walls. Each cell of the grid contains information about the
-        entities located there.
-
-        Returns:
-            grid: A 2D list where each cell is either None (empty), or contains a list of
-            dictionaries for each entity present, specifying its type ('H' for hider, 'S'
-            for seeker, 'W' for wall) and name.
-        """
-        # Initialize an empty grid
-        grid = [[None for _ in range(self.grid_size)] for _ in range(self.grid_size)]
-        # Populate the grid with hiders
-        for hider in self.hiders:
-            # Check if the cell is not empty and append; otherwise, create a new list
-            if grid[hider.x][hider.y] != None:
-                grid[hider.x][hider.y].append({"type": "H", "name": hider.name})
-            else:
-                grid[hider.x][hider.y] = [{"type": "H", "name": hider.name}]
-        # Populate the grid with seekers
-        for seeker in self.seekers:
-            if grid[seeker.x][seeker.y] != None:
-                grid[seeker.x][seeker.y].append({"type": "S", "name": seeker.name})
-            else:
-                grid[seeker.x][seeker.y] = [{"type": "S", "name": seeker.name}]
-        # Populate the grid with walls
-        for x in range(len(self.wall)):
-            for y in range(len(self.wall[x])):
-                if self.wall[x][y] == 1:
-                    grid[x][y] = [{"type": "W", "name": f"wall_{x}_{y}"}]
-
-        return grid
 
     def _hider_time_limit_exceeded(self):
         """

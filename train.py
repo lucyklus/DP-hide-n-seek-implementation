@@ -4,7 +4,7 @@ import torch
 from agilerl.algorithms.maddpg import MADDPG
 from agilerl.algorithms.matd3 import MATD3
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import os
 import json
 import wandb  # Import the Weights & Biases library for experiment tracking
@@ -166,7 +166,6 @@ def run_frame(
     # Update the episode object with the current frame's data
     ep.frames.append(
         Frame(
-            state=env.render(),
             actions={
                 "seekers": {
                     agent_name: int(seekers_discrete_action[agent_name])
@@ -177,7 +176,6 @@ def run_frame(
                     for agent_name in hiders_discrete_action
                 },
             },
-            done=done,
             won=won,
             found=found,
         )
@@ -322,7 +320,7 @@ def round_up_rewards(ep_data: Episode):
 
 def train_data(
     agent_config: AgentConfig, config: Config, walls: List[List[int]]
-) -> List[Episode]:
+) :
     """
     Initiates the training process for the hide-and-seek game given a configuration,
     environment settings, and wall structures. Organizes training data collection,
@@ -368,6 +366,7 @@ def train_data(
         static_seekers=agent_config == AgentConfig.STATIC_SEEKERS,
         static_hiders=agent_config == AgentConfig.STATIC_HIDERS,
     )
+    initial_positions = env.get_positions()
     env.reset()
     # Set up the computing device for training (GPU or CPU)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -493,6 +492,7 @@ def train_data(
             episodes_data.append(
                 {
                     "map": walls,
+                    "initial_positions": initial_positions,
                 }
             )
         rounded_ep_data = round_up_rewards(ep_data)
@@ -512,4 +512,3 @@ def train_data(
     episode_n = 0
 
     env.close()  # Clean up the environment resources
-    return episodes_data  # Return the collected episode data

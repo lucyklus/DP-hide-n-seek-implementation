@@ -164,9 +164,7 @@ class Frame:
 
     Attributes capture the state of the grid, actions performed, whether agents are done, if the game is won, and which agent was found.
     """
-    state: List[List[Dict[str, str]]]
     actions: Dict[str, Dict[str, int]]
-    done: Dict[str, Dict[str, int]]
     won: Dict[str, bool]
     found: Dict[str, str]
 

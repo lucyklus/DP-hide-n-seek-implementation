@@ -25,6 +25,8 @@ class GameRenderer:
 
     def __init__(
         self,
+        map_config: List[List[int]],
+        init_positions: Dict[str, List[int]],
         episodes_data: List[Episode],
         grid_size: int,
         total_time: int,
@@ -39,6 +41,8 @@ class GameRenderer:
         The initialization process sets up the Pygame window, loads images for the entities, and prepares
         the game for rendering episodes.
         """
+        self.map_config: List[List[int]] = map_config
+        self.init_positions: Dict[str, List[int]] = init_positions
         self.episodes_data: List[Episode] = episodes_data
         self.grid_size = grid_size
         self.total_time = total_time
@@ -102,53 +106,102 @@ class GameRenderer:
             )
             self.visibility_group[f"seeker_{i}"] = visibility_ring
 
+        for x, col in enumerate(self.map_config):
+            for y, cell in enumerate(col):
+                if cell == 1:
+                    wall = Wall(image=self.wall_image)
+                    wall.set_pos(x, y)
+                    self.walls_group[f"frame_{x}_{y}"] = wall
+
+    def can_move(self, x: int, y: int) -> bool:
+        """
+        Checks if a given position is valid for an entity to move to.
+        Parameters:
+            x (int): The x-coordinate of the position.
+            y (int): The y-coordinate of the position.
+        """
+        if x < 0 or y < 0 or x >= self.grid_size or y >= self.grid_size:
+            return False
+        for wall in self.walls_group.values():
+            if wall.x == x and wall.y == y:
+                return False
+        return True
+
+    def get_new_position(self, x, y, action) -> tuple[int, int]:
+        """
+        Returns the new position for a given entity based on the action taken.
+        
+        Parameters:
+            x (int): The current x-coordinate of the entity.
+            y (int): The current y-coordinate of the entity.
+            action (int): The action taken by the entity.
+        """
+        if action == 0 and self.can_move(x, y - 1):
+            return x, y - 1
+        elif action == 1 and self.can_move(x, y + 1):
+            return x, y + 1
+        elif action == 2 and self.can_move(x - 1, y):
+            return x - 1, y
+        elif action == 3 and self.can_move(x + 1, y):
+            return x + 1, y
+        else:
+            return x, y
+
     def set_positions(
         self,
         frame: Frame,
         frame_i: int,
     ):
         """
-        Sets the positions of all entities (hiders, seekers, walls) for a specific frame
+        Sets the positions of hiders, seekers for a specific frame
         based on the game state at that moment.
 
         Parameters:
             frame (Frame): The current frame to be rendered.
             frame_i (int): The index of the frame within the episode.
         """
-        for x, col in enumerate(frame.state):
-            for y, cell in enumerate(col):
-                if cell == None:
-                    continue
-                for entity in cell:
-                    if entity["type"] == "W":
-                        if self.walls_group.get(f"frame_{x}_{y}") is None:
-                            self.walls_group[f"frame_{x}_{y}"] = Wall(
-                                image=self.wall_image
-                            )
-                        self.walls_group[f"frame_{x}_{y}"].set_pos(x, y)
-                    elif entity["type"] == "S":
-                        if frame_i > self.hiding_time:
-                            self.seekers_group[entity["name"]].set_pos(
-                                x, y, frame.actions["seekers"][entity["name"]]
-                            )
-                            self.visibility_group[entity["name"]].set_pos(x, y)
-                            self.visibility_group[entity["name"]].set_visibility(True)
-                        else:
-                            self.visibility_group[entity["name"]].set_visibility(False)
-                            self.seekers_group[entity["name"]].set_pos(x, y, 4)
 
-                    elif entity["type"] == "H":
-                        if frame.found[entity["name"]] is not None:
-                            self.hiders_group[entity["name"]].set_pos(x, y, 5)
-                        else:
-                            if frame_i < self.hiding_time:
-                                self.hiders_group[entity["name"]].set_pos(
-                                    x, y, frame.actions["hiders"][entity["name"]]
-                                )
-                            else:
-                                self.hiders_group[entity["name"]].set_pos(x, y, 4)
+        for hider in frame.actions["hiders"]:
+            last_x: int = self.hiders_group[hider].x
+            last_y: int = self.hiders_group[hider].y
+            if frame.found[hider] is not None:
+                self.hiders_group[hider].set_pos(last_x, last_y, 5)
+                continue
+            if frame_i >= self.hiding_time:
+                self.hiders_group[hider].set_pos(last_x, last_y, 4)
+                continue
+            new_action: int = frame.actions["hiders"][hider]
+            new_x, new_y = self.get_new_position(last_x, last_y, new_action)
+            self.hiders_group[hider].set_pos(new_x, new_y, new_action)
 
-    def render_frame(self, frame_index):
+        for seeker in frame.actions["seekers"]:
+            last_x: int = self.seekers_group[seeker].x
+            last_y: int = self.seekers_group[seeker].y
+            if frame_i <= self.hiding_time:
+                self.visibility_group[seeker].set_visibility(False)
+                self.seekers_group[seeker].set_pos(last_x, last_y, 4)
+                continue
+            new_action: int = frame.actions["seekers"][seeker]
+            new_x, new_y = self.get_new_position(last_x, last_y, new_action)
+            self.seekers_group[seeker].set_pos(new_x, new_y, new_action)
+            self.visibility_group[seeker].set_pos(new_x, new_y)
+            self.visibility_group[seeker].set_visibility(True)
+
+    def reset_positions(self):
+        """
+        Resets the positions of hiders, seekers to their initial state at the beginning of an episode.
+        """
+
+        for hider in self.hiders_group.values():
+            pos = self.init_positions[hider.name]
+            hider.set_pos(pos[0], pos[1], 4)
+
+        for seeker in self.seekers_group.values():
+            pos = self.init_positions[seeker.name]
+            seeker.set_pos(pos[0], pos[1], 4)
+            self.visibility_group[seeker.name].set_visibility(False)
+
+    def render_frame(self, frame_index: int):
         """
         Renders a single frame of the episode, drawing all entities (hiders, seekers, walls)
         on the screen based on their positions and states.
@@ -176,8 +229,8 @@ class GameRenderer:
 
     def render(self):
         """
-        The main rendering loop that goes through each episode and each frame, calling 
-        render_frame for each moment of the game. Handles user input for pausing and 
+        The main rendering loop that goes through each episode and each frame, calling
+        render_frame for each moment of the game. Handles user input for pausing and
         quitting the game, and displays the outcome of each episode.
         """
         running = True  # Flag to keep the loop running
@@ -185,6 +238,7 @@ class GameRenderer:
 
         for ep in self.episodes_data:
             pygame.display.set_caption(f"Episode {ep.number}")  # Window title
+            self.reset_positions()
             for frame_i, frame in enumerate(ep.frames):
                 paused = False  # Flag for pausing the game
                 # Event handling loop
