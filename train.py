@@ -489,7 +489,14 @@ def train_data(
             action_dim_hiders,
             action_dim_seekers,
         )
-        episodes_data.append(ep_data)
+        if episode == 0:
+            episodes_data.append(
+                {
+                    "map": walls,
+                }
+            )
+        rounded_ep_data = round_up_rewards(ep_data)
+        episodes_data.append(rounded_ep_data)
         episode_n += 1
         # Decrease epsilon for the epsilon-greedy policy as training progresses
         epsilon = max(eps_end, epsilon * eps_decay)
