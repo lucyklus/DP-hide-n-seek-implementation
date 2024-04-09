@@ -130,8 +130,10 @@ class Rewards:
     """
     hiders: Dict[str, HiderRewards]
     hiders_total_reward: float
+    hiders_total_penalty: float
     seekers: Dict[str, SeekerRewards]
     seekers_total_reward: float
+    seekers_total_penalty: float
 
     def add(self, rew: Self):
         """
@@ -139,6 +141,9 @@ class Rewards:
         """
         self.hiders_total_reward += rew.hiders_total_reward
         self.seekers_total_reward += rew.seekers_total_reward
+        
+        self.hiders_total_penalty += rew.hiders_total_penalty
+        self.seekers_total_penalty += rew.seekers_total_penalty
         for hider in rew.hiders:
             if hider not in self.hiders:
                 self.hiders[hider] = rew.hiders[hider]

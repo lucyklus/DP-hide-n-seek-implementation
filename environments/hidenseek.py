@@ -256,6 +256,8 @@ class HideAndSeekEnv(ParallelEnv):
             seekers={s.name: SeekerRewards(0.0, 0.0, 0.0) for s in self.seekers},
             hiders_total_reward=0.0,
             seekers_total_reward=0.0,
+            hiders_total_penalty=0.0,
+            seekers_total_penalty=0.0,
         )
 
         # Determine how many hiders are still hidden.
@@ -315,9 +317,11 @@ class HideAndSeekEnv(ParallelEnv):
         # Sum up total rewards for each group.
         for h in self.hiders:
             rewards.hiders_total_reward += rewards.hiders[h.name].get_total_reward()
+            rewards.hiders_total_penalty += rewards.hiders[h.name].discovery_penalty
 
         for s in self.seekers:
             rewards.seekers_total_reward += rewards.seekers[s.name].get_total_reward()
+            rewards.seekers_total_penalty += rewards.seekers[s.name].discovery_penalty
 
         return rewards
 

@@ -217,7 +217,14 @@ def run_episode(
     # Initialize the episode data structure.
     ep: Episode = Episode(
         episode,
-        Rewards(hiders={}, hiders_total_reward=0, seekers={}, seekers_total_reward=0),
+        Rewards(
+            hiders={},
+            hiders_total_reward=0,
+            hiders_total_penalty=0,
+            seekers={},
+            seekers_total_reward=0,
+            seekers_total_penalty=0,
+        ),
         [],
     )
     # Reset the environment to start a new episode and get the initial observation
@@ -261,6 +268,8 @@ def run_episode(
     # Log aggregated reward and penalty data for the episode
     log_data["seekers_total_reward"] = ep.rewards.seekers_total_reward
     log_data["hiders_total_reward"] = ep.rewards.hiders_total_reward
+    log_data["seekers_total_penalty"] = ep.rewards.seekers_total_penalty
+    log_data["hiders_total_penalty"] = ep.rewards.hiders_total_penalty
     log_data["seekers_penalty"] = sum(
         [ep.rewards.seekers[seeker].discovery_penalty for seeker in ep.rewards.seekers]
     )
@@ -289,6 +298,26 @@ def run_episode(
 
     # Return the populated episode data structure.
     return ep
+
+
+def round_up_rewards(ep_data: Episode):
+    """
+    Rounds up the rewards to 2 decimal places for all agents in the episode data.
+    """
+    for hider in ep_data.rewards.hiders:
+        ep_data.rewards.hiders[hider].time_reward = round(
+            ep_data.rewards.hiders[hider].time_reward, 2
+        )
+
+    for seeker in ep_data.rewards.seekers:
+        ep_data.rewards.seekers[seeker].time_reward = round(
+            ep_data.rewards.seekers[seeker].time_reward, 2
+        )
+    ep_data.rewards.hiders_total_reward = round(ep_data.rewards.hiders_total_reward, 2)
+    ep_data.rewards.seekers_total_reward = round(
+        ep_data.rewards.seekers_total_reward, 2
+    )
+    return ep_data
 
 
 def train_data(
@@ -377,7 +406,7 @@ def train_data(
         )
 
         # NN for seekers agents
-        seekers = MADDPG( # Rewrite to MATD3 if needed
+        seekers = MADDPG(  # Rewrite to MATD3 if needed
             state_dims=state_dim_seekers,
             action_dims=action_dim_seekers,
             n_agents=config.N_SEEKERS,
@@ -409,7 +438,7 @@ def train_data(
             device=device,
         )
 
-        hiders = MADDPG( # Rewrite to MATD3 if needed
+        hiders = MADDPG(  # Rewrite to MATD3 if needed
             state_dims=state_dim_hiders,
             action_dims=action_dim_hiders,
             n_agents=config.N_HIDERS,
