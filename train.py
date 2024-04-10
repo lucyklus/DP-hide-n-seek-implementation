@@ -318,9 +318,7 @@ def round_up_rewards(ep_data: Episode):
     return ep_data
 
 
-def train_data(
-    agent_config: AgentConfig, config: Config, walls: List[List[int]]
-) :
+def train_data(agent_config: AgentConfig, config: Config, walls: List[List[int]]):
     """
     Initiates the training process for the hide-and-seek game given a configuration,
     environment settings, and wall structures. Organizes training data collection,
@@ -349,6 +347,7 @@ def train_data(
             "visibility_radius": config.VISIBILITY,
             "episodes": config.EPISODES,
             "agent_config": agent_config.name,
+            "algorithm": config.ALGORITHM,
         },
     )
     # Initialize a list to hold the data of each episode
@@ -405,17 +404,30 @@ def train_data(
         )
 
         # NN for seekers agents
-        seekers = MADDPG(  # Rewrite to MATD3 if needed
-            state_dims=state_dim_seekers,
-            action_dims=action_dim_seekers,
-            n_agents=config.N_SEEKERS,
-            agent_ids=seekers_names,
-            discrete_actions=True,
-            min_action=None,
-            max_action=None,
-            one_hot=False,
-            device=device,
-        )
+        if config.ALGORITHM == "MADDPG":
+            seekers = MADDPG(
+                state_dims=state_dim_seekers,
+                action_dims=action_dim_seekers,
+                n_agents=config.N_SEEKERS,
+                agent_ids=seekers_names,
+                discrete_actions=True,
+                min_action=None,
+                max_action=None,
+                one_hot=False,
+                device=device,
+            )
+        elif config.ALGORITHM == "MATD3":
+            seekers = MATD3(
+                state_dims=state_dim_seekers,
+                action_dims=action_dim_seekers,
+                n_agents=config.N_SEEKERS,
+                agent_ids=seekers_names,
+                discrete_actions=True,
+                min_action=None,
+                max_action=None,
+                one_hot=False,
+                device=device,
+            )
     else:
         buffer_seekers = None
         seekers = None
@@ -437,17 +449,31 @@ def train_data(
             device=device,
         )
 
-        hiders = MADDPG(  # Rewrite to MATD3 if needed
-            state_dims=state_dim_hiders,
-            action_dims=action_dim_hiders,
-            n_agents=config.N_HIDERS,
-            agent_ids=hiders_names,
-            discrete_actions=True,
-            one_hot=False,
-            min_action=None,
-            max_action=None,
-            device=device,
-        )
+        # NN for hiders agents
+        if config.ALGORITHM == "MADDPG":
+            hiders = MADDPG(
+                state_dims=state_dim_hiders,
+                action_dims=action_dim_hiders,
+                n_agents=config.N_HIDERS,
+                agent_ids=hiders_names,
+                discrete_actions=True,
+                one_hot=False,
+                min_action=None,
+                max_action=None,
+                device=device,
+            )
+        elif config.ALGORITHM == "MATD3":
+            hiders = MATD3(
+                state_dims=state_dim_hiders,
+                action_dims=action_dim_hiders,
+                n_agents=config.N_HIDERS,
+                agent_ids=hiders_names,
+                discrete_actions=True,
+                one_hot=False,
+                min_action=None,
+                max_action=None,
+                device=device,
+            )
     else:
         buffer_hiders = None
         hiders = None

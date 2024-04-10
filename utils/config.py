@@ -26,6 +26,7 @@ class Config:
     VISIBILITY: int
     EPISODES: int
     EPISODE_PART_SIZE: int
+    ALGORITHM: str
 
     def __init__(
         self,
@@ -37,6 +38,7 @@ class Config:
         VISIBILITY: int,
         EPISODES: int,
         EPISODE_PART_SIZE: int,
+        ALGORITHM: str
     ):
         """
         Initializes the configuration with specified values.
@@ -49,6 +51,7 @@ class Config:
         self.VISIBILITY = VISIBILITY
         self.EPISODES = EPISODES
         self.EPISODE_PART_SIZE = EPISODE_PART_SIZE
+        self.ALGORITHM = ALGORITHM
 
     @staticmethod
     def _load_configurations():
@@ -68,6 +71,7 @@ class Config:
             VISIBILITY=int(os.getenv("VISIBILITY")),
             EPISODES=int(os.getenv("EPISODES")),
             EPISODE_PART_SIZE=int(os.getenv("EPISODE_PART_SIZE")),
+            ALGORITHM=os.getenv("ALGORITHM")
         )
         
     @staticmethod
