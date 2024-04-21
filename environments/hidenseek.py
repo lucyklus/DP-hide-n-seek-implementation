@@ -174,9 +174,7 @@ class HideAndSeekEnv(ParallelEnv):
         for agent in self.seekers + self.hiders:
             positions[agent.name] = (agent.x, agent.y)
         return positions
-        
-        
-    
+
     def step(self, hiders_actions, seekers_actions):
         """
         Advances the environment by one timestep. Updates agent states and computes new observations and rewards.
@@ -361,26 +359,24 @@ class HideAndSeekEnv(ParallelEnv):
 
     def _is_near_wall(self, x, y):
         """
-        Determines if the specified coordinates are within one block from it.
+        Determines if the specified coordinates are right next to block.
 
         Parameters:
         - x (int): The x-coordinate of the location to check.
         - y (int): The y-coordinate of the location to check.
 
         Returns:
-        - bool: True if a wall is within one block of the specified location, False otherwise.
+        - bool: True if a wall is next to the specified coordinates, otherwise False.
         """
-        for dx in range(-1, 2):
-            for dy in range(-1, 2):
-                if (
-                    x + dx < 0
-                    or x + dx >= self.grid_size
-                    or y + dy < 0
-                    or y + dy >= self.grid_size
-                ):
-                    continue
-                if self.wall[x + dx][y + dy] == 1:
-                    return True
+        if x > 0 and self.wall[x - 1][y] == 1:
+            return True
+        if x < self.grid_size - 1 and self.wall[x + 1][y] == 1:
+            return True
+        if y > 0 and self.wall[x][y - 1] == 1:
+            return True
+        if y < self.grid_size - 1 and self.wall[x][y + 1] == 1:
+            return True
+        return False
 
     def _move_agent(self, agent_type: AgentType, name: str, action: int):
         """
