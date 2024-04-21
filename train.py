@@ -496,7 +496,7 @@ def train_data(agent_config: AgentConfig, config: Config, walls: List[List[int]]
             # Save the current part of the episode data and reset the tracker
             file_n += 1
             save_episode_part(training_date, file_n, episodes_data)
-            episodes_data: List[Episode] = []
+            episodes_data: List[Episode] = [episodes_data[0]]
             episode_n = 0
 
         # Run the episode and collect data
