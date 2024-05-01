@@ -4,6 +4,19 @@ import os
 
 
 class Config:
+    """
+    A configuration class for loading and accessing game settings from environment variables.
+
+    Attributes:
+        N_HIDERS (int): Number of hiders in the game.
+        N_SEEKERS (int): Number of seekers in the game.
+        GRID_SIZE (int): The size of the square grid.
+        TOTAL_TIME (int): Total time allotted for each episode.
+        HIDING_TIME (int): Time allotted for hiders to hide at the beginning of each episode.
+        VISIBILITY (int): Visibility range for seekers.
+        EPISODES (int): Number of episodes to run.
+        EPISODE_PART_SIZE (int): Number of episodes after which to save a new file.
+    """
     config: Self = None
     N_HIDERS: int
     N_SEEKERS: int
@@ -13,7 +26,7 @@ class Config:
     VISIBILITY: int
     EPISODES: int
     EPISODE_PART_SIZE: int
-    USE_CHECKPOINTS: bool
+    ALGORITHM: str
 
     def __init__(
         self,
@@ -25,8 +38,11 @@ class Config:
         VISIBILITY: int,
         EPISODES: int,
         EPISODE_PART_SIZE: int,
-        USE_CHECKPOINTS: bool,
+        ALGORITHM: str
     ):
+        """
+        Initializes the configuration with specified values.
+        """
         self.N_HIDERS = N_HIDERS
         self.N_SEEKERS = N_SEEKERS
         self.GRID_SIZE = GRID_SIZE
@@ -35,9 +51,16 @@ class Config:
         self.VISIBILITY = VISIBILITY
         self.EPISODES = EPISODES
         self.EPISODE_PART_SIZE = EPISODE_PART_SIZE
-        self.USE_CHECKPOINTS = USE_CHECKPOINTS
+        self.ALGORITHM = ALGORITHM
 
+    @staticmethod
     def _load_configurations():
+        """
+        Loads configuration values from a .env file into the Config class.
+
+        Returns:
+            A Config instance populated with settings from the environment variables.
+        """
         load_dotenv("./.env", verbose=True, override=True)
         return Config(
             N_HIDERS=int(os.getenv("N_HIDERS")),
@@ -48,10 +71,17 @@ class Config:
             VISIBILITY=int(os.getenv("VISIBILITY")),
             EPISODES=int(os.getenv("EPISODES")),
             EPISODE_PART_SIZE=int(os.getenv("EPISODE_PART_SIZE")),
-            USE_CHECKPOINTS=bool(os.getenv("USE_CHECKPOINTS")),
+            ALGORITHM=os.getenv("ALGORITHM")
         )
-
+        
+    @staticmethod
     def get():
+        """
+        Returns a singleton instance of the Config class, loading the configuration from environment variables if not already done.
+
+        Returns:
+            The singleton Config instance with loaded settings.
+        """
         if Config.config is None:
             Config.config = Config._load_configurations()
         return Config.config

@@ -1,20 +1,25 @@
 import datetime
-from environments import hidenseek
 import numpy as np
 import torch
 from agilerl.algorithms.maddpg import MADDPG
 from agilerl.algorithms.matd3 import MATD3
 from agilerl.components.multi_agent_replay_buffer import MultiAgentReplayBuffer
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import os
 import json
-import wandb
+import wandb  # Import the Weights & Biases library for experiment tracking
 from enum import Enum
 from utils.config import Config
-from rendering.renderer import Episode, Frame, Rewards
+from environments.models import Episode, Frame, Rewards
+from environments import hidenseek
 
 
 class AgentConfig(Enum):
+    """
+    Defines the behavior modes for agents within the training environment, allowing
+    for configuration of static, random, or learning-based agent actions.
+    """
+
     NO_RANDOM = 1
     RANDOM_SEEKERS = 2
     RANDOM_HIDERS = 3
@@ -24,7 +29,14 @@ class AgentConfig(Enum):
 
 
 def save_episode_part(training_date: str, file_n: int, episodes_data: List[Episode]):
-    file_n += 1
+    """
+    Saves a part of the episode data to a JSON file for later analysis or replay.
+
+    Parameters:
+    - training_date (str): The date of the training session, used for organizing saved data.
+    - file_n (int): The file number, used for splitting data into manageable parts.
+    - episodes_data (List[Episode]): The episode data to be saved.
+    """
     save_file = open(f"./results/{training_date}/part{file_n}.json", "w")
     json.dump(episodes_data, save_file, indent=2, default=lambda obj: obj.__dict__)
     save_file.close()
@@ -44,22 +56,36 @@ def run_frame(
     action_dim_seekers: List[int],
     hiders_names: List[str],
     seekers_names: List[str],
-) -> Dict[str, np.ndarray]:
-    # Get hider actions
+) -> Dict[str, np.ndarray]:  # Returns the new observation after executing actions
+    """
+    Processes a single frame (step) in an episode, handling agent actions, state transitions,
+    and learning updates.
+
+    Parameters describe the current state of the environment, agent configurations, the
+    learning algorithms for both hiders and seekers, their action spaces, names, and the
+    epsilon value for exploration. The function calculates the next state and updates
+    the episode object with the results.
+
+    Returns the new observation state after all actions are executed.
+    """
     if hiders is not None:
+        # If hiders have a learning algorithm, use it to get actions based on observations
         hider_observation = {agent: observation[agent] for agent in hiders_names}
         hiders_cont_actions, hiders_discrete_action = hiders.getAction(
             hider_observation, epsilon
         )
     elif agent_config == AgentConfig.STATIC_HIDERS:
+        # If hiders are static, they do not move
         hiders_discrete_action: Dict[str, int] = {
             agent: hidenseek.Movement.STAY.value for agent in hiders_names
         }
     elif agent_config in [AgentConfig.RANDOM_HIDERS, AgentConfig.RANDOM_BOTH]:
-        # Generate random actions
+        # If hiders are to act randomly, sample actions from their action spaces
         hiders_discrete_action: Dict[str, int] = {
             agent: int(env.action_space(agent).sample()) for agent in hiders_names
         }
+
+    # Prepare continuous actions if necessary, based on agent configuration
     if agent_config in [
         AgentConfig.STATIC_HIDERS,
         AgentConfig.RANDOM_HIDERS,
@@ -71,7 +97,7 @@ def run_frame(
         for agent in hiders_names:
             hiders_cont_actions[agent][hiders_discrete_action[agent]] = 1
 
-    # Get seeker actions
+    # Determine actions for seekers similarly, based on their agent configuration
     if seekers is not None:
         seeker_observation = {agent: observation[agent] for agent in seekers_names}
         seekers_cont_actions, seekers_discrete_action = seekers.getAction(
@@ -96,11 +122,14 @@ def run_frame(
         }
         for agent in seekers_names:
             seekers_cont_actions[agent][seekers_discrete_action[agent]] = 1
+
+    # Execute the determined actions in the environment
     new_obs, rewards, done, won, found = env.step(
         hiders_discrete_action, seekers_discrete_action
     )
 
-    # Adding to buffer
+    # Add experiences to replay buffers for both hiders and seekers
+    # This includes the current observation, actions, received rewards, new observation, and done flags
     if hiders is not None:
         buffer_hiders.save2memory(
             observation,
@@ -118,7 +147,7 @@ def run_frame(
             done["seekers"],
         )
 
-    # Train hiders
+    # Train both hiders and seekers if conditions are met
     if hiders is not None:
         if (buffer_hiders.counter % hiders.learn_step == 0) and (
             len(buffer_hiders) >= hiders.batch_size
@@ -126,8 +155,6 @@ def run_frame(
             experiences = buffer_hiders.sample(hiders.batch_size)
             # Learn according to agent's RL algorithm
             hiders.learn(experiences)
-
-    # Train seekers
     if seekers is not None:
         if (buffer_seekers.counter % seekers.learn_step == 0) and (
             len(buffer_seekers) >= seekers.batch_size
@@ -136,9 +163,9 @@ def run_frame(
             # Learn according to agent's RL algorithm
             seekers.learn(experiences)
 
+    # Update the episode object with the current frame's data
     ep.frames.append(
         Frame(
-            state=env.render(),
             actions={
                 "seekers": {
                     agent_name: int(seekers_discrete_action[agent_name])
@@ -149,15 +176,15 @@ def run_frame(
                     for agent_name in hiders_discrete_action
                 },
             },
-            done=done,
             won=won,
             found=found,
         )
     )
 
-    # End of frame => Add cumulative rewards
+    # Accumulate total rewards for hiders and seekers based on the rewards received in this frame
     ep.rewards.hiders_total_reward += rewards["hiders_total_reward"]
     ep.rewards.seekers_total_reward += rewards["seekers_total_reward"]
+    # Return the new observation for the next frame
     return new_obs
 
 
@@ -175,13 +202,33 @@ def run_episode(
     action_dim_hiders: List[int],
     action_dim_seekers: List[int],
 ) -> Episode:
+    """
+    Executes one full episode of training or evaluation, given the environment and
+    configuration for agents. Manages the episode lifecycle from start to finish.
+
+    Collects data for each frame within the episode, handles learning updates for
+    agents, and logs episode outcomes.
+
+    Returns the Episode object filled with the episode's data for further analysis or review.
+    """
+
+    # Initialize the episode data structure.
     ep: Episode = Episode(
         episode,
-        Rewards(hiders={}, hiders_total_reward=0, seekers={}, seekers_total_reward=0),
+        Rewards(
+            hiders={},
+            hiders_total_reward=0,
+            hiders_total_penalty=0,
+            seekers={},
+            seekers_total_reward=0,
+            seekers_total_penalty=0,
+        ),
         [],
     )
+    # Reset the environment to start a new episode and get the initial observation
     observation = env.reset()
 
+    # Process each frame in the episode until all agents are done
     while env.agents:
         observation = run_frame(
             observation,
@@ -199,11 +246,11 @@ def run_episode(
             seekers_names,
         )
 
-    # End of episode => Add total rewards and penalties
+    # After the episode ends, calculate total rewards and penalties for the episode
     ep.rewards.add(env.calculate_total_rewards())
 
+    # Prepare data for logging to Weights & Biases (wandb).
     log_data = {}
-
     for hider in ep.rewards.hiders:
         log_data[f"hider_{hider}_reward"] = ep.rewards.hiders[hider].get_total_reward()
         log_data[f"hider_{hider}_penalty"] = ep.rewards.hiders[hider].discovery_penalty
@@ -216,9 +263,11 @@ def run_episode(
             seeker
         ].discovery_penalty
 
-    # Total rewards and penalties
+    # Log aggregated reward and penalty data for the episode
     log_data["seekers_total_reward"] = ep.rewards.seekers_total_reward
     log_data["hiders_total_reward"] = ep.rewards.hiders_total_reward
+    log_data["seekers_total_penalty"] = ep.rewards.seekers_total_penalty
+    log_data["hiders_total_penalty"] = ep.rewards.hiders_total_penalty
     log_data["seekers_penalty"] = sum(
         [ep.rewards.seekers[seeker].discovery_penalty for seeker in ep.rewards.seekers]
     )
@@ -226,7 +275,11 @@ def run_episode(
         [ep.rewards.hiders[hider].discovery_penalty for hider in ep.rewards.hiders]
     )
 
+    # Log the data to wandb for tracking and visualization.
     wandb.log(log_data)
+
+    # Append the total rewards for seekers and hiders to their respective score history
+    # if the current agent configuration involves learning (non-random) agents
     if agent_config in [
         AgentConfig.NO_RANDOM,
         AgentConfig.RANDOM_HIDERS,
@@ -240,17 +293,51 @@ def run_episode(
         AgentConfig.STATIC_SEEKERS,
     ]:
         hiders.scores.append(ep.rewards.hiders_total_reward)
+
+    # Return the populated episode data structure.
     return ep
 
 
-def train_data(
-    agent_config: AgentConfig, config: Config, walls: List[List[int]]
-) -> List[Episode]:
-    # start a new wandb run to track this script
+def round_up_rewards(ep_data: Episode):
+    """
+    Rounds up the rewards to 2 decimal places for all agents in the episode data.
+    """
+    for hider in ep_data.rewards.hiders:
+        ep_data.rewards.hiders[hider].time_reward = round(
+            ep_data.rewards.hiders[hider].time_reward, 2
+        )
+
+    for seeker in ep_data.rewards.seekers:
+        ep_data.rewards.seekers[seeker].time_reward = round(
+            ep_data.rewards.seekers[seeker].time_reward, 2
+        )
+    ep_data.rewards.hiders_total_reward = round(ep_data.rewards.hiders_total_reward, 2)
+    ep_data.rewards.seekers_total_reward = round(
+        ep_data.rewards.seekers_total_reward, 2
+    )
+    return ep_data
+
+
+def train_data(agent_config: AgentConfig, config: Config, walls: List[List[int]]):
+    """
+    Initiates the training process for the hide-and-seek game given a configuration,
+    environment settings, and wall structures. Organizes training data collection,
+    model updates, and logging.
+
+    Uses Weights & Biases for experiment tracking, and handles the setup and teardown
+    of training infrastructure.
+
+    Parameters:
+    - agent_config: Specifies the behavior and roles of agents in the training.
+    - config: Training and environment configuration.
+    - walls: Specifies the layout of walls within the environment.
+
+    Returns a list of Episode objects containing the data from each training episode.
+    """
+
+    # Start a new Weights & Biases run for tracking and visualizing the training process
     wandb.init(
-        # set the wandb project where this run will be logged
         project="marl-hide-n-seek",
-        # track hyperparameters and run metadata
         config={
             "n_hiders": config.N_HIDERS,
             "n_seekers": config.N_SEEKERS,
@@ -260,10 +347,13 @@ def train_data(
             "visibility_radius": config.VISIBILITY,
             "episodes": config.EPISODES,
             "agent_config": agent_config.name,
+            "algorithm": config.ALGORITHM,
         },
     )
+    # Initialize a list to hold the data of each episode
     episodes_data: List[Episode] = []
 
+    # Create the environment for the Hide and Seek game from the specified configuration
     env = hidenseek.HideAndSeekEnv(
         wall=walls,
         num_hiders=config.N_HIDERS,
@@ -275,24 +365,28 @@ def train_data(
         static_seekers=agent_config == AgentConfig.STATIC_SEEKERS,
         static_hiders=agent_config == AgentConfig.STATIC_HIDERS,
     )
+    initial_positions = env.get_positions()
     env.reset()
-
+    # Set up the computing device for training (GPU or CPU)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     field_names = ["state", "action", "reward", "next_state", "done"]
-    # Exploration params
-    eps_start = 1.0  # Max exploration
-    eps_end = 0.1  # Min exploration
-    eps_decay = 0.995  # Decay per episode
-    epsilon = eps_start
+    # Parameters for epsilon-greedy strategy in exploration
+    eps_start = 1.0  # Initial exploration rate
+    eps_end = 0.1  # Final exploration rate
+    eps_decay = 0.995  # Decay rate of exploration per episode
+    epsilon = eps_start  # Current exploration rate
 
-    # Seekers
+    # Configuration for seekers
     seekers_names = [agent.name for agent in env.seekers]
+    # State dimension includes the grid size and agent position
     state_dim_seekers = [
         (config.GRID_SIZE**2 + 2,) for _ in seekers_names
     ]  # +2 for the agent's position
     action_dim_seekers = [
-        # we are calling .n because we have discrete action space
-        env.action_space(agent).n
+        # Action dimension obtained from the environment's action space
+        env.action_space(
+            agent
+        ).n  # We are calling .n because we have discrete action space
         for agent in seekers_names
     ]
 
@@ -301,7 +395,7 @@ def train_data(
         AgentConfig.RANDOM_HIDERS,
         AgentConfig.STATIC_HIDERS,
     ]:
-        # Saving the states and then selects samples from them at each specified batch and learns on them
+        # Initialize the replay buffer
         buffer_seekers = MultiAgentReplayBuffer(
             memory_size=1000,
             field_names=field_names,
@@ -310,28 +404,35 @@ def train_data(
         )
 
         # NN for seekers agents
-        seekers = MADDPG(
-            state_dims=state_dim_seekers,
-            action_dims=action_dim_seekers,
-            n_agents=config.N_SEEKERS,
-            agent_ids=seekers_names,
-            discrete_actions=True,
-            one_hot=False,
-            min_action=None,
-            max_action=None,
-            device=device,
-        )
-        if config.USE_CHECKPOINTS:
-            try:
-                seekers.loadCheckpoint("./checkpoints/seekers.chkp")
-                print("Seekers checkpoint loaded")
-            except:
-                print("No seekers checkpoint found")
+        if config.ALGORITHM == "MADDPG":
+            seekers = MADDPG(
+                state_dims=state_dim_seekers,
+                action_dims=action_dim_seekers,
+                n_agents=config.N_SEEKERS,
+                agent_ids=seekers_names,
+                discrete_actions=True,
+                min_action=None,
+                max_action=None,
+                one_hot=False,
+                device=device,
+            )
+        elif config.ALGORITHM == "MATD3":
+            seekers = MATD3(
+                state_dims=state_dim_seekers,
+                action_dims=action_dim_seekers,
+                n_agents=config.N_SEEKERS,
+                agent_ids=seekers_names,
+                discrete_actions=True,
+                min_action=None,
+                max_action=None,
+                one_hot=False,
+                device=device,
+            )
     else:
         buffer_seekers = None
         seekers = None
 
-    # Hiders
+    # Configuration for hiders
     hiders_names = [agent.name for agent in env.hiders]
     state_dim_hiders = [(config.GRID_SIZE**2 + 2,) for _ in hiders_names]
     action_dim_hiders = [env.action_space(agent).n for agent in hiders_names]
@@ -348,42 +449,57 @@ def train_data(
             device=device,
         )
 
-        hiders = MADDPG(
-            state_dims=state_dim_hiders,
-            action_dims=action_dim_hiders,
-            n_agents=config.N_HIDERS,
-            agent_ids=hiders_names,
-            discrete_actions=True,
-            one_hot=False,
-            min_action=None,
-            max_action=None,
-            device=device,
-        )
-        if config.USE_CHECKPOINTS:
-            try:
-                hiders.loadCheckpoint("./checkpoints/hiders.chkp")
-                print("Hiders checkpoint loaded")
-            except:
-                print("No hiders checkpoint found")
+        # NN for hiders agents
+        if config.ALGORITHM == "MADDPG":
+            hiders = MADDPG(
+                state_dims=state_dim_hiders,
+                action_dims=action_dim_hiders,
+                n_agents=config.N_HIDERS,
+                agent_ids=hiders_names,
+                discrete_actions=True,
+                one_hot=False,
+                min_action=None,
+                max_action=None,
+                device=device,
+            )
+        elif config.ALGORITHM == "MATD3":
+            hiders = MATD3(
+                state_dims=state_dim_hiders,
+                action_dims=action_dim_hiders,
+                n_agents=config.N_HIDERS,
+                agent_ids=hiders_names,
+                discrete_actions=True,
+                one_hot=False,
+                min_action=None,
+                max_action=None,
+                device=device,
+            )
     else:
         buffer_hiders = None
         hiders = None
 
+    # Variables to keep track of the episode count and file naming
     episode_n = 0
     file_n = 0
     training_date = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    if os.path.exists("./results") == False:
+    # Create directories for storing results if they don't exist
+    if not os.path.exists("./results"):
         os.mkdir("./results")
 
-    if os.path.exists(f"./results/{training_date}") == False:
+    if not os.path.exists(f"./results/{training_date}"):
         os.mkdir(f"./results/{training_date}")
-    # Episodes
+
+    # Main training loop for the specified number of episodes
     for episode in range(config.EPISODES):
         if episode_n == config.EPISODE_PART_SIZE:
+            # Save the current part of the episode data and reset the tracker
+            file_n += 1
             save_episode_part(training_date, file_n, episodes_data)
-            episodes_data: List[Episode] = []
+            episodes_data: List[Episode] = [episodes_data[0]]
             episode_n = 0
+
+        # Run the episode and collect data
         ep_data = run_episode(
             env,
             episode,
@@ -398,25 +514,28 @@ def train_data(
             action_dim_hiders,
             action_dim_seekers,
         )
-        episodes_data.append(ep_data)
+        if episode == 0:
+            episodes_data.append(
+                {
+                    "map": walls,
+                    "initial_positions": initial_positions,
+                }
+            )
+        rounded_ep_data = round_up_rewards(ep_data)
+        episodes_data.append(rounded_ep_data)
         episode_n += 1
-        epsilon = max(eps_end, epsilon * eps_decay)  # Update epsilon for explorati
+        # Decrease epsilon for the epsilon-greedy policy as training progresses
+        epsilon = max(eps_end, epsilon * eps_decay)
 
+    # After all episodes are run, save any remaining episode data
     file_n += 1
     save_file = open(f"./results/{training_date}/part{file_n}.json", "w")
     json.dump(episodes_data, save_file, indent=2, default=lambda obj: obj.__dict__)
     save_file.close()
+
+    # Reset for next training session
     episodes_data: List[Episode] = []
     episode_n = 0
-    # if os.path.exists("./checkpoints") == False:
-    #     os.mkdir("./checkpoints")
 
-    # if not random_seekers:
-    #     seekers.saveCheckpoint(
-    #         "./checkpoints/seekers.chkp"
-    #     )  # TODO: dont overwrite, save versions with timestamp
-    # if not random_hiders:
-    #     hiders.saveCheckpoint("./checkpoints/hiders.chkp")
-
-    env.close()
-    return episodes_data
+    env.close()  # Clean up the environment resources
+    wandb.finish()  # Finish the Weights & Biases run
