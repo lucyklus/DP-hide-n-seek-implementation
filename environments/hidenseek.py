@@ -355,7 +355,7 @@ class HideAndSeekEnv(ParallelEnv):
         Returns:
             bool: True if the game time has reached zero, otherwise False.
         """
-        return self.game_time == 0
+        return self.game_time == 1
 
     def _is_near_wall(self, x, y):
         """
