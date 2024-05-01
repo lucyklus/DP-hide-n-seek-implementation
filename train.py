@@ -538,3 +538,4 @@ def train_data(agent_config: AgentConfig, config: Config, walls: List[List[int]]
     episode_n = 0
 
     env.close()  # Clean up the environment resources
+    wandb.finish()  # Finish the Weights & Biases run

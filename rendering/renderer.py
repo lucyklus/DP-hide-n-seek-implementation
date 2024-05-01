@@ -130,7 +130,7 @@ class GameRenderer:
     def get_new_position(self, x, y, action) -> tuple[int, int]:
         """
         Returns the new position for a given entity based on the action taken.
-        
+
         Parameters:
             x (int): The current x-coordinate of the entity.
             y (int): The current y-coordinate of the entity.
