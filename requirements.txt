@@ -4,3 +4,4 @@ torch==2.1.0
 pygame==2.5.2
 wandb==0.13.10
 python-dotenv==1.0.1
+gymnasium==0.28.1
